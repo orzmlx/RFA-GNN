@@ -1,0 +1,187 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{hyperpdfx}
+  [2022/09/13 v0.4 hyperref PDF/A and PDF/X conformance]
+
+% Usage: Load hyperpdfx before hyperref. If you load hyperref first, enable
+% the pdfa and pdfusetitle options.
+%
+% You will need to populate metadata fields, at least \title{} and \author{}
+% or alternatively \hypersetup{pdfauthor={},pdftitle={}}
+% 
+% Use the cmyk option to attempt PDF/X conformance
+% 
+% See package Readme.md for more info
+
+%% Copyright 2022 Jan-Åke Larsson
+%
+% This work may be distributed and/or modified under the
+% conditions of the LaTeX Project Public License, either version 1.3
+% of this license or (at your option) any later version.
+% The latest version of this license is in
+%   http://www.latex-project.org/lppl.txt
+% and version 1.3 or later is part of all distributions of LaTeX
+% version 2005/12/01 or later.
+%
+% This work has the LPPL maintenance status `maintained'.
+% 
+% The Current Maintainer of this work is Jan-Åke Larsson.
+%
+% This work consists of the files hyperpdfx.sty
+%
+%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%% SOFTWARE.
+
+% hyperref options pdfa and pdfusetitle are only available at load time
+\@ifpackageloaded{hyperref}{
+  \newcommand{\hyperpdfx@error}{
+    \PackageError{hyperpdfx}{%
+      hyperref options pdfa and/or pdfusetitle not active.\MessageBreak 
+      These must be enabled in hyperref at load time.\MessageBreak
+      Output will not be PDF/A-compliant.\MessageBreak
+      This can be resolved in three ways:\MessageBreak
+      1) load hyperpdfx before hyperref\MessageBreak 
+      2) load hyperref with those two options\MessageBreak 
+      3) or perhaps simplest, put\MessageBreak\space\space
+      \protect\PassOptionsToPackage{pdfa,pdfusetitle}{hyperref}\MessageBreak 
+      before \protect\documentclass{}%
+    }{%
+      Type \space <return>\space to proceed, 
+      this will give non-PDF/A-compliant output%
+%      .\MessageBreak\MessageBreak hyperpdfx warning occured%
+    }
+  }
+  \ifHy@pdfa
+    \ifHy@pdfusetitle
+    \else
+      \hyperpdfx@error
+    \fi
+  \else
+    \hyperpdfx@error
+  \fi
+}{
+  \PassOptionsToPackage{pdfa,pdfusetitle}{hyperref}
+}
+
+\newif\ifpdfxrgb
+\pdfxrgbtrue
+\DeclareOption{rgb}{\pdfxrgbtrue}
+\DeclareOption{cmyk}{\pdfxrgbfalse}
+\ProcessOptions\relax
+
+\RequirePackage{etoolbox}
+\AtEndPreamble{
+
+  \RequirePackage{hyperref} 
+  % The hyperxmp from TeXlive2019 causes a mismatch in the Creator field between pdfinfo and xmp data
+  \RequirePackage{hyperxmp}[2020/06/15]
+  % Workaround a bug in hyperxmp that outputs a spurious comma when pdfauthor empty
+  % See https://tex.stackexchange.com/questions/365600/spurious-comma-appears-when-combining-hyperref-pdfa-with-hyperxmp
+  % Perhaps this only occurs with pdflatex and not lualatex or xelatex
+  \ifx\@pdfauthor\@empty\hypersetup{pdfauthor={.}}\fi
+
+  \hypersetup{%
+    pdfdisplaydoctitle=true,% Nice but not crucial
+%    % The below is needed for full PDF/X compliance
+%    bookmarks=false, % Bookmarks are incompatible with PDF/X<6
+    pdftrapped=False,
+    pdfapart=2,
+    pdfaconformance=B,
+%    % PDF/UA document tagging is being developed for latex-3, see below
+%    pdfuapart=1,
+  }
+  
+%  % Document tagging for PDF/A-1a, PDF/A-2a, PDF/A-3a
+%  \RequirePackage{tagpdf}[2019/07/02]
+%  % tagpdf current devel version is too new, doesn't work
+%  \@ifpackagelater{tagpdf}{2019/07/03}{\PackageWarning{hyperpdfx}{The tagpdf package is newer than tested (2019/07/02), output pdf may not be PDF/A-1a (-2a/-3a) conformant}}{}
+%  \tagpdfsetup{activate-all}
+  
+  \RequirePackage{cmap}
+  % lualatex: omit unused characters in fonts
+  % https://tex.stackexchange.com/questions/474197/pdfx-incomplete-cidset-in-some-fonts/474336#474336
+  \ifluatex
+  \pdfvariable omitcidset=1
+  \fi
+
+  \@ifpackageloaded{xcolor}{
+    \ifpdfxrgb\selectcolormodel{rgb}\else\selectcolormodel{cmyk}\fi
+  }{
+    \ifpdfxrgb\PassOptionsToPackage{rgb}{xcolor}\else\PassOptionsToPackage{cmyk}{xcolor}\fi
+    \PassOptionsToPackage{hyperref}{xcolor}
+    \RequirePackage{xcolor}
+  }
+  
+  \RequirePackage{colorprofiles}
+  \ifpdfxrgb
+    \def\colorpro@profile{\colorpro@rgb@profile}
+    \def\colorpro@format{/N 3}
+    \def\colorpro@identifier{\colorpro@rgb@identifier}
+    \def\colorpro@info{\colorpro@rgb@info}
+    \def\colorpro@registry{\colorpro@rgb@registry}
+  \else
+    \def\colorpro@profile{\colorpro@cmyk@profile}
+    \def\colorpro@format{/N 4}
+    % colorprofiles.sty command names differ between rgb and cmyk
+    \def\colorpro@identifier{\colorpro@cmyk@intent}
+    \def\colorpro@info{\colorpro@cmyk@identifier}
+    \def\colorpro@registry{\colorpro@cmyk@registry}
+  \fi
+  \ifxetex
+    \def\OBJ@PROFILE{@colorprofile}%
+    \immediate\special{pdf:fstream \OBJ@PROFILE (\colorpro@profile) <<\colorpro@format>>}%
+    \def\pdfcatalog#1{\special{pdf:put @catalog <<#1>>}}
+    \def\pdfpageattr#1{\special{pdf:put @thispage <<#1>>}}
+  \else
+    \immediate\pdfobj stream attr{\colorpro@format} file {\colorpro@profile}%
+    \edef\OBJ@PROFILE{\the\pdflastobj\space 0 R}%
+  \fi
+  \pdfcatalog{%
+    /OutputIntents [ <<
+      /Type /OutputIntent /S/GTS_PDFA1
+      /DestOutputProfile \OBJ@PROFILE
+      /OutputConditionIdentifier (\colorpro@identifier)
+      /Info (\colorpro@info)
+      /OutputCondition (\colorpro@identifier)
+      /RegistryName (\colorpro@registry)
+    >> <<
+      /Type /OutputIntent /S/GTS_PDFX
+      /DestOutputProfile \OBJ@PROFILE
+      /OutputConditionIdentifier (\colorpro@identifier)
+      /Info(\colorpro@info)
+      /OutputCondition(\colorpro@identifier)
+      /RegistryName(\colorpro@registry)
+    >> ]
+  }
+
+  \ifpdfxrgb\else
+    % PDF/X compliance only works with CMYK
+    \hypersetup{
+      pdfxstandard={PDF/X-4},
+    }
+
+    %% Bugfix of hycolor to produce CMYK links, at least until package dated 2020/01/27
+    \@ifpackagelater{hycolor}{2020/01/28}{\PackageWarning{hyperpdfx}{The hycolor package is newer than tested (2020/01/28), output pdf may not be PDF/A conformant}}{}
+    \let\HyColor@HyperrefBorderColor\HyColor@XZeroOneThreeFour
+
+    % Tell PDF/X the final format of the paper
+    \@tempdima=0.99626400996264009962\paperwidth
+    \edef\boxwd{\strip@pt\@tempdima}
+    \@tempdima=0.99626400996264009962\paperheight
+    \edef\boxht{\strip@pt\@tempdima}
+    \edef\next{%
+      \protect\pdfpageattr{
+        /TrimBox[0.0 0.0 \boxwd\space \boxht]
+      }
+    }
+    \next
+  \fi
+
+  %%%%%%%%%%%%%% Dynamic color managment
+  % https://tex.stackexchange.com/questions/146517/how-to-improve-color-consistency-of-bitmap-pictures-from-native-format-to-target
+  % Dynamic color profile handling may be developed for latex-3
+}

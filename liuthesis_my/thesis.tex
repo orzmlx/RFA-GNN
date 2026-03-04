@@ -1,0 +1,53 @@
+\documentclass[msc,english]{liuthesis}
+\input{settings}
+
+% Metadata
+\department{Department of Computer and Information Science}
+\departmentenglish{Department of Computer and Information Science}
+\departmentshort{IDA}
+\supervisor{Oleg Sysoev}
+\examiner{Sebastian Mair}
+\titleenglish{Biologically informed graph neural networks for perturbation effect prediction}
+\subtitleenglish{Integrating Multi-Modal Biological Data}
+\makeatletter
+\gdef\@titleswedish{}
+\gdef\@subtitleswedish{}
+\makeatother    
+\thesissubject{Computer Science}
+\publicationyear{2026}
+\currentyearthesisnumber{001}
+\dateofpublication{2026-02-28}
+\author{Liuxi Mei}
+
+\begin{document}
+
+\chapterstyle{VZ43}
+
+% Acknowledgments
+% \chapter*{Acknowledgments}
+% I would like to express my sincere gratitude to my supervisor, colleagues, and family for their continuous support and encouragement throughout the course of this research.
+
+\chapter{Introduction}
+
+\section{Motivation}
+The mechanism of action (MoA) of a drug describes how the drug affects biological systems and leads to a measurable response. Knowing the MoA can support drug development and drug repositioning. However, MoA is often unknown for many compounds, and experimental validation is expensive.
+
+Large-scale perturbation datasets provide gene expression measurements after drug treatment in different cell lines. These data make it possible to train machine learning models that predict a drug response. A key challenge is that drug response depends on both the drug and the cell context. In addition, drug target information is incomplete for many compounds, and molecular fingerprints may not directly match biological pathways. As a result, models can learn shortcuts, for example by mainly using cell and control expression signals, and then show limited transfer to unseen drugs.
+
+Graph neural networks (GNNs) are a natural choice for this problem because genes form networks through regulatory and protein interactions. By using a gene interaction graph, a model can propagate information across related genes and connect drug targets to downstream effects. This thesis explores a GNN-based framework that integrates gene networks, gene expression, and drug features, and studies how to evaluate and improve the influence of drug target information.
+
+\section{Aim}
+The aim of this thesis is to implement and evaluate a GNN-based method to predict drug-induced gene expression changes, and to analyze how drug target information contributes to the predictions under a cold-drug setting.
+
+\section{Research questions}
+The research questions addressed in this thesis are:
+\begin{enumerate}
+    \item Can a GNN that uses a gene interaction graph improve the prediction of drug-induced expression changes compared to non-graph baselines?
+    \item How do different drug inputs (drug targets and molecular fingerprints) affect performance, especially when test drugs are unseen during training?
+    \item How can we diagnose whether the model truly uses drug information instead of relying mainly on cell and control expression signals?
+\end{enumerate}
+
+\section{Delimitations}
+This study focuses on transcriptomic perturbation prediction and MoA-related analysis using gene expression, a gene interaction network, and drug features (targets and fingerprints). Other omics modalities, clinical outcomes, and wet-lab validation are outside the scope of this thesis. The evaluation is based on publicly available perturbation datasets and controlled train/test splits, with an emphasis on cold-drug generalization.
+
+\end{document}

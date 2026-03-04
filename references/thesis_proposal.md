@@ -83,9 +83,9 @@ This section outlines potential improvements where optimal strategies are yet to
     *   *Proposal*: We propose to integrate **LncBook** and **LncRNA2Target** databases to add an lncRNA layer to the graph (`TF -> lncRNA -> Gene`).
     *   *Uncertainty*: Most lncRNA interactions lack directional signs (activation/inhibition). I am unsure about the best strategy to initialize these edge weights (e.g., inferring direction from correlation data vs. initializing as neutral).
 
-3.  **Handling "Undirected" Interactions**:
-    *   *Problem*: A significant portion of PPI data (e.g., from STRING) is undirected.
-    *   *Proposal*: Treat undirected edges as bidirectional edges in the GNN.
+3.  **Handling "Undirected" Interactions via Learnable Directionality**:
+    *   *Problem*: A significant portion of PPI data (e.g., from STRING) is undirected. Standard RFA requires a directed graph.
+    *   *Proposal*: We propose a **"Learnable Directionality"** mechanism. We will initialize undirected edges as bidirectional (`A <-> B`) with learnable gating parameters. During training on the CMAP dataset, the GNN will dynamically adjust the weights of `A->B` vs `B->A` based on the observed signal flow, effectively "discovering" the true biological direction from the data.
     *   *Uncertainty*: This creates feedback loops. While RFA handles loops mathematically, I am unsure if this will lead to signal explosion or vanishing gradients during GNN training.
 
 4.  **Enhancing CMAP Resolution**:

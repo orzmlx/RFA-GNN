@@ -1,0 +1,32 @@
+\chapter{Introduction}
+
+Developing new drugs is a costly and uncertain process,and many potential drugs never make it to market. Only about 12 percent of drugs entering clinical trials are ultimately approved for introduction .This variability is largely due to the complexity of genomic responses to drugs, which are shaped by a multitude of interactions between genes and proteins within cellular networks. Understanding and predicting these perturbation effects is a major challenge for precision medicine and drug discovery.
+
+To address this, we leverage two high-quality resources: (1) the Connectivity Map (CMAP/LINCS) database, which provides large-scale gene expression measurements after drug treatment in diverse cell lines and its control data, covering 12,328 genes and over 60,000 treatment-control pairs, and (2) the OmniPath interaction network, a literature-curated map of signaling pathways covering tens of thousands of causal interactions. CMAP offers dynamic input-output pairs (drug targets to gene expression changes) for supervised learning, while OmniPath serves as a structural backbone for modeling biological graph.
+
+Previous approaches fall into two categories. Pure machine learning models with the form of a multilayer perceptron (MLP), such as DeepCOP~\cite{woo2020deepcop}, use deep learning to predict gene regulation effects from molecular fingerprints and gene ontology terms, but treat genes as independent features and ignore known biological interactions. In contrast, graph neural network models such as GraphGRP~\cite{wang2022graphgrp} focus on modeling drug molecular networks to capture the bonds among atoms, while our approach leverages GNNs to model gene interaction networks for drug response prediction. Network-based methods like Regulation Flow Analysis (RFA)~\cite{roca2025rfa} model signal propagation through curated gene networks, but lack the flexibility to learn from large-scale experimental data and cannot adapt to context-specific responses.
+
+This thesis proposes a hybrid approach: constructing biologically informed graph attention networks (GATs) that integrate the OmniPath network structure with gene expression and drug target data from CMAP. Unlike generic GNNs, our model uses the biological network as its adjacency matrix combined with stimulation and inhibition signals and learns how these signals propagate through it based on attention values. This design aims to combine the interpretability and mechanistic insight of network models with the predictive power of deep learning.
+
+By constructing data-driven and knowledge-based approaches, this work aims to improve the prediction of drug perturbation effects and provide new insights into the molecular mechanisms underlying drug response.
+
+\section{Objective}
+The objective of this thesis is to develop and evaluate biologically informed graph attention network (GAT) models for predicting drug-induced gene expression changes. By integrating curated biological networks and large-scale perturbation data, the work aims to improve the accuracy and interpretability of drug response prediction, with a particular focus on generalization to unseen drugs and cell lines.
+
+The main research questions addressed are:
+\begin{enumerate}
+    \item Study which GNN architectures are most suitable for predicting drug-induced gene expression changes when integrating gene expression and drug target information
+    \item Evaluate how well do these models generalize to new cell lines and unseen drugs
+    \item Compare biologically informed GNNs with existing machine learning models that ignore network structure?
+\end{enumerate}
+
+\section{Contributions}
+This thesis makes the following key contributions:
+\begin{itemize}
+    \item Proposes a hybrid GAT framework that combines OmniPath network structure, stimulation/inhibition signals, and CMAP gene expression data for drug perturbation prediction.
+    \item Demonstrates that attention values in GAT layers can reveal biologically meaningful signal propagation and highlight key genes and pathways involved in drug response.
+    \item Provides a systematic comparison between biologically informed GNNs and traditional machine learning models, quantifying the added value of network structure and interpretability.
+\end{itemize}
+
+\section{Uniqueness}
+The uniqueness of this work lies in its explicit integration of literature-curated biological networks with deep learning architectures, moving beyond black-box prediction to mechanistic insight. Unlike previous models that treat genes as independent features or rely solely on static network analysis, this approach leverages attention mechanisms to dynamically model how drug signals propagate through complex gene networks, offering both predictive power and biological interpretability.

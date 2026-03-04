@@ -1,0 +1,9 @@
+[submodule "DeepCOP"]
+	path = DeepCOP
+	url = https://github.com/godwinwoo/DeepCOP.git
+[submodule "GSNN"]
+	path = GSNN
+	url = https://github.com/nathanieljevans/GSNN.git
+[submodule "XPert"]
+	path = XPert
+	url = https://github.com/GSanShui/XPert.git

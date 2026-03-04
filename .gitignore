@@ -1,6 +1,75 @@
 venv/
-data/
+.venv/
+.python-version
+.env
+.env.*
+
+# Local datasets / large artifacts (do not upload)
+/data/
+
 __pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 .DS_Store
-*.gz
-*.csv
+
+# Common large compressed/tabular files in data/
+/data/**/*.gz
+/data/**/*.csv
+
+# IDE / local notes
+/.trae/
+/.vscode/
+
+# Outputs / logs / temp
+*.log
+*.out
+*.aux
+*.toc
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+texput.log
+/tmp/
+
+# Model checkpoints / artifacts
+/saved_models/
+*.ckpt
+*.pth
+*.pt
+*.h5
+*.hdf5
+*.h5ad
+*.keras
+*.npy
+*.npz
+*.pkl
+*.joblib
+
+# Large archives / binaries (keep sources only)
+*.rar
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.xlsx
+*.pptx
+
+# Thesis build artifacts (keep .tex/.bib/.sty, ignore generated PDF if desired)
+liuthesis_my/thesis.pdf
+
+# Reference papers/slides
+/references/*.pdf
+/references/*.pptx
+/references/~$*.pptx
+
+# DeepCOP bundled data
+/DeepCOP/Data/
+
+# Third-party large subprojects (optional to exclude from main repo)
+# /DeepCOP/Data/
+
+# Upstream thesis template repo (use liuthesis_my instead)
+/liuthesis/
