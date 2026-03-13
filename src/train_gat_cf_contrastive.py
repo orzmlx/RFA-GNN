@@ -8,6 +8,7 @@ from tensorflow.keras import layers
 from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
+import json
 
 
 def eval_pcc_mse(
@@ -58,6 +59,45 @@ def eval_pcc_mse(
     avg_pcc = float(np.mean(pcc_list)) if pcc_list else 0.0
     mse = float(mean_squared_error(y_true_valid, pred_valid))
     return {"mse": mse, "pcc": avg_pcc}
+
+def _save_npz(path, **kwargs):
+    payload = {}
+    for k, v in kwargs.items():
+        if isinstance(v, (dict, list)):
+            try:
+                payload[k] = np.asarray([json.dumps(v)], dtype=object)
+            except TypeError:
+                payload[k] = np.asarray([v], dtype=object)
+        else:
+            payload[k] = v
+    out_dir = os.path.dirname(str(path))
+    if out_dir != "":
+        os.makedirs(out_dir, exist_ok=True)
+    np.savez_compressed(path, **payload)
+
+
+def _samplewise_metrics(y_true, y_pred, loss_mask):
+    valid_indices = np.where(np.asarray(loss_mask)[0] > 0)[0]
+    yt = y_true[:, valid_indices]
+    yp = y_pred[:, valid_indices]
+    pcc = np.zeros((len(yt),), dtype=np.float32)
+    mse = np.zeros((len(yt),), dtype=np.float32)
+    for i in range(len(yt)):
+        a = yt[i]
+        b = yp[i]
+        mse[i] = float(np.mean((a - b) ** 2))
+        if np.std(a) > 1e-6 and np.std(b) > 1e-6:
+            pcc[i] = float(pearsonr(a, b)[0])
+        else:
+            pcc[i] = 0.0
+    return pcc, mse
+
+
+def _parse_csv_list(s):
+    s = str(s).strip()
+    if s == "":
+        return []
+    return [x.strip() for x in s.split(",") if x.strip() != ""]
 
 
 class CounterfactualTrainer(keras.Model):
@@ -411,6 +451,16 @@ def main():
     parser.add_argument("--eval_drug_shuffle", action="store_true", default=False)
     parser.add_argument("--eval_sanity_max_eval", type=int, default=20000)
     parser.add_argument("--eval_sanity_seed", type=int, default=0)
+    parser.add_argument("--save_gat_weights", default="")
+    parser.add_argument("--save_meta_json", default="")
+    parser.add_argument("--save_test_ids_npy", default="")
+    parser.add_argument("--save_eval_npz", default="")
+    parser.add_argument("--export_attention", action="store_true", default=False)
+    parser.add_argument("--attention_max_samples", type=int, default=2000)
+    parser.add_argument("--attention_batch_size", type=int, default=64)
+    parser.add_argument("--attention_group_by", choices=["", "drug", "cell"], default="")
+    parser.add_argument("--attention_groups", default="")
+    parser.add_argument("--attention_top_k_groups", type=int, default=12)
     args = parser.parse_args()
 
     np.random.seed(42)
@@ -771,6 +821,260 @@ def main():
             y_is_residual=residualize_target,
         )
         print(f"Sanity(drug_shuffle) | MSE: {m['mse']:.4f} | Sample-wise PCC: {m['pcc']:.4f}")
+
+    if str(args.save_gat_weights).strip() != "":
+        out_path = str(args.save_gat_weights).strip()
+        out_dir = os.path.dirname(out_path)
+        if out_dir != "":
+            os.makedirs(out_dir, exist_ok=True)
+        _ = model.save_weights(out_path)
+        print(f"Saved GAT weights to: {out_path}")
+
+    trt_distil_ids = np.asarray(data.get("trt_distil_ids", [""] * len(drug_ids)), dtype=object)
+    if trt_distil_ids.size == 0 or len(trt_distil_ids) != len(drug_ids):
+        trt_distil_ids = np.asarray([str(i) for i in range(len(drug_ids))], dtype=object)
+
+    test_ids_path = str(args.save_test_ids_npy).strip()
+    if test_ids_path == "" and str(args.save_meta_json).strip() != "":
+        test_ids_path = os.path.splitext(str(args.save_meta_json).strip())[0] + ".test_ids.npy"
+    if test_ids_path != "":
+        out_dir = os.path.dirname(test_ids_path)
+        if out_dir != "":
+            os.makedirs(out_dir, exist_ok=True)
+        np.save(test_ids_path, np.asarray(trt_distil_ids[test_mask], dtype=object))
+        print(f"Saved test ids to: {test_ids_path}")
+
+    if str(args.save_meta_json).strip() != "":
+        out_path = str(args.save_meta_json).strip()
+        out_dir = os.path.dirname(out_path)
+        if out_dir != "":
+            os.makedirs(out_dir, exist_ok=True)
+        meta = {
+            "cell_line": args.cell_line,
+            "use_landmark_genes": bool(args.use_landmark_genes),
+            "split_mode": str(args.split_mode),
+            "test_frac": float(args.test_frac),
+            "epochs": int(args.epochs),
+            "batch_size": int(args.batch_size),
+            "sparse_gat": bool(args.sparse_gat),
+            "use_drug_fp_embedding": bool(args.use_drug_fp_embedding),
+            "hidden_dim": int(args.hidden_dim),
+            "num_heads": int(args.num_heads),
+            "dropout": float(args.dropout),
+            "attention_layers": int(args.attention_layers),
+            "per_node_head": bool(args.per_node_head),
+            "no_cell_embedding": bool(args.no_cell_embedding),
+            "no_residualize_target_by_cell": bool(args.no_residualize_target_by_cell),
+            "cf_mode": str(args.cf_mode),
+            "cf_lambda": float(args.cf_lambda),
+            "cf_margin": float(args.cf_margin),
+            "aux_target_alpha": float(args.aux_target_alpha),
+            "wmss_alpha": float(args.wmss_alpha),
+            "wmss_mode": str(args.wmss_mode),
+            "wmss_weak": str(args.wmss_weak),
+            "train_metrics": train_metrics,
+            "test_metrics": test_metrics,
+            "test_ids_npy": test_ids_path,
+        }
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+        print(f"Saved run meta to: {out_path}")
+
+    save_eval_npz = str(args.save_eval_npz).strip()
+    if save_eval_npz != "":
+        if bool(args.export_attention) and not bool(args.sparse_gat):
+            raise ValueError("export_attention 目前只支持 --sparse_gat")
+
+        if bool(args.use_drug_fp_embedding):
+            y_pred_test = trainer.predict([test_ctl, test_drug, test_cells, test_fp], batch_size=256, verbose=0)
+        else:
+            y_pred_test = trainer.predict([test_ctl, test_drug, test_cells], batch_size=256, verbose=0)
+        y_true_test = np.asarray(test_trt, dtype=np.float32)
+        y_pred_test = np.asarray(y_pred_test, dtype=np.float32)
+        if residualize_target and cell_delta_mean is not None:
+            cm = np.asarray(cell_delta_mean, dtype=np.float32)[test_cells]
+            y_true_test = y_true_test + cm
+            y_pred_test = y_pred_test + cm
+
+        sample_pcc, sample_mse = _samplewise_metrics(y_true_test, y_pred_test, data["loss_mask"])
+
+        sanity = {}
+        if bool(args.eval_drug_zero):
+            zero_drug = np.zeros_like(test_drug, dtype=np.float32)
+            if bool(args.use_drug_fp_embedding) and fp_dim > 0:
+                zero_fp = np.zeros((len(test_ctl), int(fp_dim)), dtype=np.float32)
+            else:
+                zero_fp = None
+            if zero_fp is None:
+                y0 = trainer.predict([test_ctl, zero_drug, test_cells], batch_size=256, verbose=0)
+            else:
+                y0 = trainer.predict([test_ctl, zero_drug, test_cells, zero_fp], batch_size=256, verbose=0)
+            y0 = np.asarray(y0, dtype=np.float32)
+            if residualize_target and cell_delta_mean is not None:
+                y0 = y0 + np.asarray(cell_delta_mean, dtype=np.float32)[test_cells]
+            sanity["drug_zero"] = eval_pcc_mse(
+                trainer,
+                test_ctl,
+                zero_drug,
+                test_cells,
+                test_trt,
+                data["loss_mask"],
+                batch_size=int(args.batch_size),
+                max_eval=int(args.eval_sanity_max_eval),
+                drug_fp=zero_fp,
+                cell_mean=cell_delta_mean,
+                y_is_residual=residualize_target,
+            )
+        if bool(args.eval_drug_shuffle):
+            rng = np.random.default_rng(int(args.eval_sanity_seed))
+            perm = rng.permutation(len(test_ctl))
+            shuf_drug = test_drug[perm]
+            if bool(args.use_drug_fp_embedding):
+                shuf_fp = None if test_fp is None else test_fp[perm]
+            else:
+                shuf_fp = None
+            sanity["drug_shuffle"] = eval_pcc_mse(
+                trainer,
+                test_ctl,
+                shuf_drug,
+                test_cells,
+                test_trt,
+                data["loss_mask"],
+                batch_size=int(args.batch_size),
+                max_eval=int(args.eval_sanity_max_eval),
+                drug_fp=shuf_fp,
+                cell_mean=cell_delta_mean,
+                y_is_residual=residualize_target,
+            )
+
+        attention = {}
+        if bool(args.export_attention):
+            rng = np.random.default_rng(0)
+            n_all = int(len(test_ctl))
+            n_attn = min(int(args.attention_max_samples), n_all) if int(args.attention_max_samples) > 0 else n_all
+            sel = rng.choice(n_all, size=n_attn, replace=False) if n_attn < n_all else np.arange(n_all)
+
+            group_by = str(args.attention_group_by).strip().lower()
+            group_labels = None
+            if group_by == "drug":
+                group_labels = np.asarray(drug_ids[test_mask][sel], dtype=str)
+            elif group_by == "cell":
+                group_labels = np.asarray(cell_names_arr[test_mask][sel], dtype=str)
+            keep_groups = None
+            if group_labels is not None:
+                specified = _parse_csv_list(args.attention_groups)
+                if len(specified) > 0:
+                    keep_groups = set([str(x) for x in specified])
+                else:
+                    uniq, counts = np.unique(group_labels, return_counts=True)
+                    order = uniq[np.argsort(-counts)]
+                    keep_groups = set(order[: int(args.attention_top_k_groups)].tolist())
+
+            edge_index_tf = tf.constant(edge_index_full.astype(np.int32), dtype=tf.int32)
+            edge_weight_tf = tf.constant(edge_weight_full.astype(np.float32), dtype=tf.float32)
+
+            layer_sums = None
+            group_sums = None
+            group_counts = None
+            bs = int(args.attention_batch_size) if int(args.attention_batch_size) > 0 else 64
+            for start in range(0, len(sel), bs):
+                end = min(start + bs, len(sel))
+                idx = sel[start:end]
+                b_ctl = tf.constant(test_ctl[idx], dtype=tf.float32)
+                b_drug = tf.constant(test_drug[idx], dtype=tf.float32)
+                b_cell = tf.constant(test_cells[idx], dtype=tf.int32)
+                if bool(args.use_drug_fp_embedding):
+                    b_fp = tf.constant(test_fp[idx], dtype=tf.float32) if (isinstance(test_fp, np.ndarray) and test_fp.ndim == 2) else tf.constant(test_fp[idx], dtype=tf.int32)
+                    _, attns = model([edge_index_tf, edge_weight_tf, b_ctl, b_drug, b_cell, b_fp], training=False, output_attention=True)
+                else:
+                    _, attns = model([edge_index_tf, edge_weight_tf, b_ctl, b_drug, b_cell], training=False, output_attention=True)
+                att_np = []
+                for li, a in enumerate(attns):
+                    a = tf.reduce_mean(a, axis=1).numpy().astype(np.float64)
+                    att_np.append(a)
+                    s = np.sum(a, axis=0)
+                    if layer_sums is None:
+                        layer_sums = [np.zeros_like(s, dtype=np.float64) for _ in range(len(attns))]
+                    layer_sums[li] += s
+                if group_labels is not None and keep_groups is not None:
+                    if group_sums is None:
+                        group_sums = {g: [np.zeros((att_np[0].shape[1],), dtype=np.float64) for _ in range(len(attns))] for g in keep_groups}
+                        group_counts = {g: 0 for g in keep_groups}
+                    b_labels = group_labels[start:end]
+                    for g in np.unique(b_labels):
+                        if g not in keep_groups:
+                            continue
+                        m = np.where(b_labels == g)[0]
+                        if len(m) == 0:
+                            continue
+                        group_counts[g] += int(len(m))
+                        for li in range(len(attns)):
+                            group_sums[g][li] += np.sum(att_np[li][m], axis=0)
+
+            layer_means = [x / float(len(sel)) for x in layer_sums]
+            attention = {
+                "attention_edge_mean": np.stack(layer_means, axis=0).astype(np.float32),
+                "edge_index": edge_index_full.astype(np.int32),
+                "edge_weight": edge_weight_full.astype(np.float32),
+                "attention_num_samples": int(len(sel)),
+            }
+            if group_sums is not None and group_counts is not None:
+                group_means = {}
+                for g, c in group_counts.items():
+                    if int(c) <= 0:
+                        continue
+                    group_means[str(g)] = np.stack([group_sums[g][li] / float(c) for li in range(len(group_sums[g]))], axis=0).astype(np.float32)
+                attention["group_by"] = group_by
+                attention["group_counts"] = {str(k): int(v) for k, v in group_counts.items()}
+                attention["group_attention_edge_mean"] = group_means
+
+        meta_out = {
+            "cell_line": args.cell_line,
+            "use_landmark_genes": bool(args.use_landmark_genes),
+            "split_mode": str(args.split_mode),
+            "test_frac": float(args.test_frac),
+            "epochs": int(args.epochs),
+            "batch_size": int(args.batch_size),
+            "sparse_gat": bool(args.sparse_gat),
+            "use_drug_fp_embedding": bool(args.use_drug_fp_embedding),
+            "hidden_dim": int(args.hidden_dim),
+            "num_heads": int(args.num_heads),
+            "dropout": float(args.dropout),
+            "attention_layers": int(args.attention_layers),
+            "per_node_head": bool(args.per_node_head),
+            "no_cell_embedding": bool(args.no_cell_embedding),
+            "no_residualize_target_by_cell": bool(args.no_residualize_target_by_cell),
+            "cf_mode": str(args.cf_mode),
+            "cf_lambda": float(args.cf_lambda),
+            "cf_margin": float(args.cf_margin),
+            "aux_target_alpha": float(args.aux_target_alpha),
+            "wmss_alpha": float(args.wmss_alpha),
+            "wmss_mode": str(args.wmss_mode),
+            "wmss_weak": str(args.wmss_weak),
+            "train_metrics": train_metrics,
+            "test_metrics": test_metrics,
+            "test_ids_npy": test_ids_path,
+            "export_attention": bool(args.export_attention),
+            "attention_group_by": str(args.attention_group_by),
+        }
+
+        _save_npz(
+            save_eval_npz,
+            y_true=y_true_test.astype(np.float32),
+            y_pred=y_pred_test.astype(np.float32),
+            sample_pcc=sample_pcc.astype(np.float32),
+            sample_mse=sample_mse.astype(np.float32),
+            cell_names=np.asarray(cell_names_arr[test_mask], dtype=object),
+            drug_ids=np.asarray(drug_ids[test_mask], dtype=object),
+            batch_ids=np.asarray(batch_ids_arr[test_mask], dtype=object),
+            trt_distil_ids=np.asarray(trt_distil_ids[test_mask], dtype=object),
+            target_genes=np.asarray(data["target_genes"], dtype=object),
+            metrics=test_metrics,
+            sanity=sanity,
+            attention=attention,
+            meta=meta_out,
+        )
+        print(f"Saved eval npz to: {save_eval_npz}")
 
 
 if __name__ == "__main__":

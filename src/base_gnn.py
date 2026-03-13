@@ -48,10 +48,11 @@ class GraphAttentionLayer(layers.Layer):
             
         super(GraphAttentionLayer, self).build(input_shape)
         
-    def call(self, inputs, return_embeddings=False):
+    def call(self, inputs, return_attention=False):
         adj, features = inputs # adj: (N, N), features: (B, N, F)
         
         outputs = []
+        attns = []
         for i in range(self.num_heads):
             # 1. Linear Transform: H = XW
             h = tf.matmul(features, self.kernels[i]) # (B, N, Out)
@@ -80,6 +81,8 @@ class GraphAttentionLayer(layers.Layer):
             # 5. Aggregation
             node_repr = tf.matmul(attn_weights * edge_weight, h)
             outputs.append(node_repr)
+            if bool(return_attention):
+                attns.append(attn_weights)
             
         # Concat heads
         if self.num_heads > 1:
@@ -87,7 +90,10 @@ class GraphAttentionLayer(layers.Layer):
         else:
             output = outputs[0]
             
-        return self.activation(output)
+        output = self.activation(output)
+        if bool(return_attention):
+            return output, tf.stack(attns, axis=1)
+        return output
 
 
 class GraphAttentionLayerSparse(layers.Layer):
@@ -108,7 +114,7 @@ class GraphAttentionLayerSparse(layers.Layer):
             self.attn_kernels.append(attn_kernel)
         super().build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, return_attention=False):
         edge_index, edge_weight, features = inputs
         edge_index = tf.cast(edge_index, tf.int32)
         edge_weight = tf.cast(edge_weight, tf.float32)
@@ -124,6 +130,7 @@ class GraphAttentionLayerSparse(layers.Layer):
         num_segs = batch_size * n_nodes
 
         outputs = []
+        attns = []
         for i in range(self.num_heads):
             h = tf.matmul(features, self.kernels[i])
             h_src = tf.gather(h, src, axis=1)
@@ -146,12 +153,17 @@ class GraphAttentionLayerSparse(layers.Layer):
             out_flat = tf.math.unsorted_segment_sum(msg_flat, seg_ids, num_segs)
             node_repr = tf.reshape(out_flat, [batch_size, n_nodes, self.output_dim])
             outputs.append(node_repr)
+            if bool(return_attention):
+                attns.append(alpha)
 
         if self.num_heads > 1:
             output = tf.concat(outputs, axis=-1)
         else:
             output = outputs[0]
-        return self.activation(output)
+        output = self.activation(output)
+        if bool(return_attention):
+            return output, tf.stack(attns, axis=1)
+        return output
 
 class BaseLineGAT(keras.Model):
     def __init__(self, num_genes, num_cells=10, num_drugs=None, fingerprint_dim=0, 
@@ -245,7 +257,7 @@ class BaseLineGAT(keras.Model):
         # Since input dim (1 or 2) != hidden_dim, we need a projection to add residual
         self.input_proj = layers.Dense(hidden_dim)
         
-    def call(self, inputs, return_embeddings=False):
+    def call(self, inputs, return_embeddings=False, output_attention=False):
         # inputs: [adj, ctl_expr, drug_targets, cell_idx, drug_fp]
         if self.use_sparse_adj:
             if self.use_drug_fp_embedding:
@@ -292,12 +304,21 @@ class BaseLineGAT(keras.Model):
             x = x * (1.0 + gamma[:, None, :]) + beta[:, None, :]
 
         x_in = x
+        attentions = []
         for i in range(self.attention_layer_number):
             res = x_in
             if self.use_sparse_adj:
-                x_attn = self.gat_layers[i]([edge_index, edge_weight, x_in])
+                if bool(output_attention):
+                    x_attn, attn = self.gat_layers[i]([edge_index, edge_weight, x_in], return_attention=True)
+                    attentions.append(attn)
+                else:
+                    x_attn = self.gat_layers[i]([edge_index, edge_weight, x_in])
             else:
-                x_attn = self.gat_layers[i]([adj, x_in])
+                if bool(output_attention):
+                    x_attn, attn = self.gat_layers[i]([adj, x_in], return_attention=True)
+                    attentions.append(attn)
+                else:
+                    x_attn = self.gat_layers[i]([adj, x_in])
             x_attn = self.attn_dropouts[i](x_attn)
             x_in = self.attn_norms[i](x_attn + res)
             x_ffn = self.ffn_layers[i](x_in)
@@ -312,8 +333,12 @@ class BaseLineGAT(keras.Model):
             out = self.dense(x_in)
             predicted = tf.squeeze(out, axis=-1)
 
+        if bool(return_embeddings) and bool(output_attention):
+            return predicted, x_in, attentions
         if bool(return_embeddings):
             return predicted, x_in
+        if bool(output_attention):
+            return predicted, attentions
         if self.use_residual:
             return ctl_expr_base + predicted
         return predicted

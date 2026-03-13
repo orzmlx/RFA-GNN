@@ -35,6 +35,7 @@ texput.log
 
 # Model checkpoints / artifacts
 /saved_models/
+/saved_model_base/
 *.ckpt
 *.pth
 *.pt
@@ -58,7 +59,18 @@ texput.log
 *.pptx
 
 # Thesis build artifacts (keep .tex/.bib/.sty, ignore generated PDF if desired)
+*.bbl
+*.blg
+*.lof
+*.lot
 liuthesis_my/thesis.pdf
+
+# Local image outputs
+/output.png
+/data_level.png
+
+# Generated debug exports
+/src/drug_to_targets.csv
 
 # Reference papers/slides
 /references/*.pdf

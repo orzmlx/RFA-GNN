@@ -48,28 +48,7 @@ def protein_to_gene_symbol_batch(protein_ids, mapping_path=None):
     if local_mapping:
         return {pid: local_mapping.get(pid, '') for pid in protein_ids if local_mapping.get(pid)}
 
-    # url = 'https://mygene.info/v3/querymany'
-    # batch_size = 1000
-    # mapping = {}
-    # for i in range(0, len(protein_ids), batch_size):
-    #     batch = protein_ids[i:i+batch_size]
-    #     data = {
-    #         'ids': ','.join(batch),
-    #         'scopes': 'uniprot',
-    #         'fields': 'symbol',
-    #         'species': 'human'
-    #     }
-    #     try:
-    #         r = requests.post(url, data=data, timeout=30)
-    #         if r.ok:
-    #             for hit in r.json():
-    #                 pid = hit.get('query')
-    #                 symbol = hit.get('symbol')
-    #                 if pid and symbol:
-    #                     mapping[pid] = symbol
-    #     except Exception as e:
-    #         print(f"蛋白ID批量查询失败: {e}")
-    # return mapping
+
 
 def update_omnipath_with_genesymbols(input_path, output_path, mapping_path=None):
     """
@@ -218,166 +197,166 @@ def download_omnipath_network(output_path='data/omnipath/'):
         raise Exception (f"OmniPath API 调用失败: {e}")
 
 
-def build_gnn_from_tf_network(
-    tf_path="data/omnipath/omnipath_tf_regulons.csv",
-    landmark_path="data/landmark_genes.json",
-    landmark_genes=None,
-    use_landmark_filter=True,
-    mapping_path=None,
-    include_non_landmark_nodes=False,
-):
-    """
-    读取 TF 调控网络，构建 GNN 邻接矩阵和节点索引。
-    Args:
-        tf_path: TF调控网络csv文件路径，需包含 source_genesymbol, target_genesymbol 两列。
-        landmark_path: landmark 基因列表路径（json 或 txt）。
-        landmark_genes: 预加载的 landmark 基因列表（保持顺序）。
-    Returns:
-        adj_matrix: (N, N) numpy array，邻接矩阵（有向，1表示有调控）
-        node_list: 节点（基因）名称列表
-        gene2idx: 节点名称到索引的映射
-        edge_index: (2, E) numpy array，GNN常用边索引格式
-    """
-    df = pd.read_csv(tf_path)
-    # 选择 genesymbol 列（优先）
-    source_col = 'source_genesymbol' if 'source_genesymbol' in df.columns else 'source'
-    target_col = 'target_genesymbol' if 'target_genesymbol' in df.columns else 'target'
+# def build_gnn_from_tf_network(
+#     tf_path="data/omnipath/omnipath_tf_regulons.csv",
+#     landmark_path="data/landmark_genes.json",
+#     landmark_genes=None,
+#     use_landmark_filter=True,
+#     mapping_path=None,
+#     include_non_landmark_nodes=False,
+# ):
+#     """
+#     读取 TF 调控网络，构建 GNN 邻接矩阵和节点索引。
+#     Args:
+#         tf_path: TF调控网络csv文件路径，需包含 source_genesymbol, target_genesymbol 两列。
+#         landmark_path: landmark 基因列表路径（json 或 txt）。
+#         landmark_genes: 预加载的 landmark 基因列表（保持顺序）。
+#     Returns:
+#         adj_matrix: (N, N) numpy array，邻接矩阵（有向，1表示有调控）
+#         node_list: 节点（基因）名称列表
+#         gene2idx: 节点名称到索引的映射
+#         edge_index: (2, E) numpy array，GNN常用边索引格式
+#     """
+#     df = pd.read_csv(tf_path)
+#     # 选择 genesymbol 列（优先）
+#     source_col = 'source_genesymbol' if 'source_genesymbol' in df.columns else 'source'
+#     target_col = 'target_genesymbol' if 'target_genesymbol' in df.columns else 'target'
 
-    # 过滤 landmark 基因
-    landmark_set = None
-    symbol_to_entrez = {}
+#     # 过滤 landmark 基因
+#     landmark_set = None
+#     symbol_to_entrez = {}
 
-    # 如需要且未传入 landmark_genes，则从文件加载
-    if use_landmark_filter and landmark_genes is None and os.path.exists(landmark_path):
-        try:
-            if landmark_path.endswith('.json'):
-                with open(landmark_path, 'r') as f:
-                    genes_meta = json.load(f)
-                landmark_genes = [g['gene_symbol'] for g in genes_meta if 'gene_symbol' in g]
-            else:
-                with open(landmark_path, 'r') as f:
-                    landmark_genes = [line.strip() for line in f if line.strip()]
-            print(f"已加载 landmark 基因列表: {len(landmark_genes)} (来自 {landmark_path})")
-        except Exception as e:
-            print(f"加载 landmark 基因列表失败: {e}")
+#     # 如需要且未传入 landmark_genes，则从文件加载
+#     if use_landmark_filter and landmark_genes is None and os.path.exists(landmark_path):
+#         try:
+#             if landmark_path.endswith('.json'):
+#                 with open(landmark_path, 'r') as f:
+#                     genes_meta = json.load(f)
+#                 landmark_genes = [g['gene_symbol'] for g in genes_meta if 'gene_symbol' in g]
+#             else:
+#                 with open(landmark_path, 'r') as f:
+#                     landmark_genes = [line.strip() for line in f if line.strip()]
+#             print(f"已加载 landmark 基因列表: {len(landmark_genes)} (来自 {landmark_path})")
+#         except Exception as e:
+#             print(f"加载 landmark 基因列表失败: {e}")
     
-    # 尝试加载映射表 (Symbol -> Entrez)
-    mapping_source = mapping_path or landmark_path
-    if os.path.exists(mapping_source):
-        try:
-            if mapping_source.endswith('.json'):
-                with open(mapping_source, 'r') as f:
-                    genes_meta = json.load(f)
-                # 建立 Symbol -> Entrez ID (str) 映射
-                for g in genes_meta:
-                    if 'gene_symbol' in g and 'entrez_id' in g:
-                        symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
-            else:
-                # 如果是 txt，无法建立映射，只能假设输入就是 Symbol
-                pass
-        except Exception as e:
-            print(f"加载映射失败: {e}")
+#     # 尝试加载映射表 (Symbol -> Entrez)
+#     mapping_source = mapping_path or landmark_path
+#     if os.path.exists(mapping_source):
+#         try:
+#             if mapping_source.endswith('.json'):
+#                 with open(mapping_source, 'r') as f:
+#                     genes_meta = json.load(f)
+#                 # 建立 Symbol -> Entrez ID (str) 映射
+#                 for g in genes_meta:
+#                     if 'gene_symbol' in g and 'entrez_id' in g:
+#                         symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
+#             else:
+#                 # 如果是 txt，无法建立映射，只能假设输入就是 Symbol
+#                 pass
+#         except Exception as e:
+#             print(f"加载映射失败: {e}")
 
-    # 如果传入的 landmark_genes 是 Entrez ID (数字字符串)，我们需要将 OmniPath 的 Symbol 转为 Entrez
-    # 判断 landmark_genes 的第一个元素是否是数字
-    is_entrez = False
-    if landmark_genes and len(landmark_genes) > 0:
-        first_gene = str(landmark_genes[0])
-        if first_gene.isdigit():
-            is_entrez = True
-            print(f"检测到 Landmark Genes 为 Entrez ID (e.g., {first_gene})，将尝试映射 OmniPath Symbol...")
+#     # 如果传入的 landmark_genes 是 Entrez ID (数字字符串)，我们需要将 OmniPath 的 Symbol 转为 Entrez
+#     # 判断 landmark_genes 的第一个元素是否是数字
+#     is_entrez = False
+#     if landmark_genes and len(landmark_genes) > 0:
+#         first_gene = str(landmark_genes[0])
+#         if first_gene.isdigit():
+#             is_entrez = True
+#             print(f"检测到 Landmark Genes 为 Entrez ID (e.g., {first_gene})，将尝试映射 OmniPath Symbol...")
     
-    if is_entrez and not symbol_to_entrez:
-        # 若 landmark 为 Entrez，但未加载到映射，尝试默认 JSON
-        fallback_json = "data/landmark_genes.json"
-        if os.path.exists(fallback_json):
-            try:
-                with open(fallback_json, 'r') as f:
-                    genes_meta = json.load(f)
-                for g in genes_meta:
-                    if 'gene_symbol' in g and 'entrez_id' in g:
-                        symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
-                print(f"使用备用映射: {fallback_json}")
-            except Exception as e:
-                print(f"备用映射加载失败: {e}")
+#     if is_entrez and not symbol_to_entrez:
+#         # 若 landmark 为 Entrez，但未加载到映射，尝试默认 JSON
+#         fallback_json = "data/landmark_genes.json"
+#         if os.path.exists(fallback_json):
+#             try:
+#                 with open(fallback_json, 'r') as f:
+#                     genes_meta = json.load(f)
+#                 for g in genes_meta:
+#                     if 'gene_symbol' in g and 'entrez_id' in g:
+#                         symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
+#                 print(f"使用备用映射: {fallback_json}")
+#             except Exception as e:
+#                 print(f"备用映射加载失败: {e}")
 
-    if is_entrez and symbol_to_entrez:
-        if include_non_landmark_nodes:
-            # 允许非 landmark 节点：无法映射的保留原 symbol
-            df['source_mapped'] = df[source_col].map(symbol_to_entrez).fillna(df[source_col].astype(str))
-            df['target_mapped'] = df[target_col].map(symbol_to_entrez).fillna(df[target_col].astype(str))
-            source_col = 'source_mapped'
-            target_col = 'target_mapped'
-            print(f"映射后 OmniPath 剩余记录: {len(df)}")
-        else:
-            # 只保留能映射到 Entrez 的边（等价于两端均在 landmark 映射中）
-            df['source_entrez'] = df[source_col].map(symbol_to_entrez)
-            df['target_entrez'] = df[target_col].map(symbol_to_entrez)
-            df = df.dropna(subset=['source_entrez', 'target_entrez'])
-            source_col = 'source_entrez'
-            target_col = 'target_entrez'
-            print(f"映射后 OmniPath 剩余记录: {len(df)}")
+#     if is_entrez and symbol_to_entrez:
+#         if include_non_landmark_nodes:
+#             # 允许非 landmark 节点：无法映射的保留原 symbol
+#             df['source_mapped'] = df[source_col].map(symbol_to_entrez).fillna(df[source_col].astype(str))
+#             df['target_mapped'] = df[target_col].map(symbol_to_entrez).fillna(df[target_col].astype(str))
+#             source_col = 'source_mapped'
+#             target_col = 'target_mapped'
+#             print(f"映射后 OmniPath 剩余记录: {len(df)}")
+#         else:
+#             # 只保留能映射到 Entrez 的边（等价于两端均在 landmark 映射中）
+#             df['source_entrez'] = df[source_col].map(symbol_to_entrez)
+#             df['target_entrez'] = df[target_col].map(symbol_to_entrez)
+#             df = df.dropna(subset=['source_entrez', 'target_entrez'])
+#             source_col = 'source_entrez'
+#             target_col = 'target_entrez'
+#             print(f"映射后 OmniPath 剩余记录: {len(df)}")
     
-    if use_landmark_filter and landmark_genes:
-        landmark_set = set(landmark_genes)
-        # 只要 source 或 target 在 landmark 中即可保留
-        df = df[df[source_col].isin(landmark_set) | df[target_col].isin(landmark_set)]
+#     if use_landmark_filter and landmark_genes:
+#         landmark_set = set(landmark_genes)
+#         # 只要 source 或 target 在 landmark 中即可保留
+#         df = df[df[source_col].isin(landmark_set) | df[target_col].isin(landmark_set)]
 
-    # 只保留有向调控关系
-    sources = df[source_col].astype(str)
-    targets = df[target_col].astype(str)
-    # 使用过滤后的图构建节点列表
-    # 保留全部 landmark 节点，并加入与其相连的非 landmark 节点
-    if use_landmark_filter and landmark_genes:
-        if include_non_landmark_nodes:
-            node_list = sorted(set(landmark_genes) | set(sources) | set(targets))
-        else:
-            node_list = list(landmark_genes)
-    else:
-        node_list = sorted(set(sources) | set(targets))
-    gene2idx = {g: i for i, g in enumerate(node_list)}
-    N = len(node_list)
-    adj_matrix = np.zeros((N, N), dtype=np.float32)
-    edge_list = []
-    for src, tgt in zip(sources, targets):
-        if src in gene2idx and tgt in gene2idx:
-            i, j = gene2idx[src], gene2idx[tgt]
-            adj_matrix[i, j] = 1
-            edge_list.append((i, j))
-    # GNN常用edge_index格式
-    if edge_list:
-        edge_index = np.array(edge_list).T  # shape (2, E)
-        print(f"TF网络节点数: {N}，边数: {len(edge_list)}")
-        total_possible = N * N
-        density = len(edge_list) / total_possible if total_possible > 0 else 0.0
-        sparsity = 1.0 - density
-        print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
+#     # 只保留有向调控关系
+#     sources = df[source_col].astype(str)
+#     targets = df[target_col].astype(str)
+#     # 使用过滤后的图构建节点列表
+#     # 保留全部 landmark 节点，并加入与其相连的非 landmark 节点
+#     if use_landmark_filter and landmark_genes:
+#         if include_non_landmark_nodes:
+#             node_list = sorted(set(landmark_genes) | set(sources) | set(targets))
+#         else:
+#             node_list = list(landmark_genes)
+#     else:
+#         node_list = sorted(set(sources) | set(targets))
+#     gene2idx = {g: i for i, g in enumerate(node_list)}
+#     N = len(node_list)
+#     adj_matrix = np.zeros((N, N), dtype=np.float32)
+#     edge_list = []
+#     for src, tgt in zip(sources, targets):
+#         if src in gene2idx and tgt in gene2idx:
+#             i, j = gene2idx[src], gene2idx[tgt]
+#             adj_matrix[i, j] = 1
+#             edge_list.append((i, j))
+#     # GNN常用edge_index格式
+#     if edge_list:
+#         edge_index = np.array(edge_list).T  # shape (2, E)
+#         print(f"TF网络节点数: {N}，边数: {len(edge_list)}")
+#         total_possible = N * N
+#         density = len(edge_list) / total_possible if total_possible > 0 else 0.0
+#         sparsity = 1.0 - density
+#         print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
         
-        # --- 关键修复: 添加自环 (Self-Loops) ---
-        # 保证每个节点至少与自己相连，避免 GNN 在孤立节点上聚合噪声
-        np.fill_diagonal(adj_matrix, 1.0)
-        print("已添加自环 (Self-Loops) 以增强图连通性。")
-        density_with_loops = (len(edge_list) + N) / total_possible if total_possible > 0 else 0.0
-        sparsity_with_loops = 1.0 - density_with_loops
-        print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
+#         # --- 关键修复: 添加自环 (Self-Loops) ---
+#         # 保证每个节点至少与自己相连，避免 GNN 在孤立节点上聚合噪声
+#         np.fill_diagonal(adj_matrix, 1.0)
+#         print("已添加自环 (Self-Loops) 以增强图连通性。")
+#         density_with_loops = (len(edge_list) + N) / total_possible if total_possible > 0 else 0.0
+#         sparsity_with_loops = 1.0 - density_with_loops
+#         print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
         
-        return adj_matrix, node_list, gene2idx, edge_index
+#         return adj_matrix, node_list, gene2idx, edge_index
     
-    # 没有有效边时，返回空边索引但保持尺寸一致
-    print("警告: 未找到有效的TF调控边，返回空图结构。")
-    total_possible = N * N
-    density = 0.0
-    sparsity = 1.0 - density
-    print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
-    # 即使是空图，也应该加自环，退化为 MLP
-    np.fill_diagonal(adj_matrix, 1.0)
-    print("已添加自环 (Self-Loops) 以防止计算崩溃。")
-    density_with_loops = N / total_possible if total_possible > 0 else 0.0
-    sparsity_with_loops = 1.0 - density_with_loops
-    print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
+#     # 没有有效边时，返回空边索引但保持尺寸一致
+#     print("警告: 未找到有效的TF调控边，返回空图结构。")
+#     total_possible = N * N
+#     density = 0.0
+#     sparsity = 1.0 - density
+#     print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
+#     # 即使是空图，也应该加自环，退化为 MLP
+#     np.fill_diagonal(adj_matrix, 1.0)
+#     print("已添加自环 (Self-Loops) 以防止计算崩溃。")
+#     density_with_loops = N / total_possible if total_possible > 0 else 0.0
+#     sparsity_with_loops = 1.0 - density_with_loops
+#     print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
     
-    edge_index = np.zeros((2, 0), dtype=int)
-    return adj_matrix, node_list, gene2idx, edge_index
+#     edge_index = np.zeros((2, 0), dtype=int)
+#     return adj_matrix, node_list, gene2idx, edge_index
 
 
 
@@ -388,7 +367,7 @@ def build_combined_gnn(
    # landmark_path=None,
     target_genes=None,
     #full_gene_path="data/GSE92742_Broad_LINCS_gene_info.txt",
-    string_path = "data/string_interactions_mapped.csv",
+    #string_path = "data/string_interactions_mapped.csv",
     confid_threshold= 0.9,
     directed=True,
     omnipath_consensus_only=False,
@@ -403,14 +382,10 @@ def build_combined_gnn(
         directed (bool):
             True: 将无向互作边(PPI/STRING)拆成双向边 (u->v, v->u)
             False: 将无向互作边(PPI/STRING)按无向去重 (u,v 与 v,u 视为同一条边)
-        omnipath_consensus_only (bool):
-            True: 仅使用 OmniPath 中 consensus_direction=True 的边（非共识方向边直接丢弃）。
         omnipath_is_directed_only (bool):
             True: 仅使用 OmniPath 中 is_directed=True 的边（无向互作边直接丢弃）。
     """
     print(">>> 正在构建 Combined GNN (TF + PPI) ...")
-    if bool(omnipath_consensus_only):
-        print("OmniPath: 仅保留 consensus_direction=True 的边")
     if bool(omnipath_is_directed_only):
         print("OmniPath: 仅保留 is_directed=True 的边")
     
@@ -451,6 +426,7 @@ def build_combined_gnn(
         directed_only=False,
         omnipath_consensus_only=False,
         omnipath_is_directed_only=False,
+        require_sign_cols=False,
     ):
         if src_symbol_col not in df.columns or tgt_symbol_col not in df.columns:
             return [], []
@@ -464,49 +440,53 @@ def build_combined_gnn(
             raise Exception("OmniPath 数据中源或目标基因未能映射到 Entrez ID。")
         is_directed_mask = df[is_directed_col].fillna(False).astype(bool) if is_directed_col in df.columns else None
 
-        consensus_direction_mask = None
-        if consensus_direction_col in df.columns:
-            consensus_direction_mask = df[consensus_direction_col].fillna(False).astype(bool)
-        elif bool(omnipath_consensus_only):
-            raise Exception("omnipath_consensus_only=True 但缺少 consensus_direction 列")
-
         if bool(omnipath_is_directed_only) and is_directed_mask is None:
             raise Exception("omnipath_is_directed_only=True 但缺少 is_directed 列")
 
         stim = None
         inhib = None
-        if consensus_stim_col in df.columns:
-            stim = df[consensus_stim_col].fillna(False).astype(bool)
-        if consensus_inhib_col in df.columns:
-            inhib = df[consensus_inhib_col].fillna(False).astype(bool)
+        if str(consensus_stim_col) in df.columns:
+            stim = df[str(consensus_stim_col)].fillna(False).astype(bool)
+        if str(consensus_inhib_col) in df.columns:
+            inhib = df[str(consensus_inhib_col)].fillna(False).astype(bool)
+        consensus_stim = df["consensus_stimulation"].fillna(False).astype(bool) if "consensus_stimulation" in df.columns else None
+        consensus_inhib = df["consensus_inhibition"].fillna(False).astype(bool) if "consensus_inhibition" in df.columns else None
+        if bool(require_sign_cols) and (stim is None or inhib is None):
+            raise Exception(f"缺少 sign 列: stim={consensus_stim_col}, inhib={consensus_inhib_col}")
         directed_edges = []
         undirected_edges = []
         for idx in np.where(valid.values)[0]:
+            s_symbol = str(src_sym.iloc[idx])
+            t_symbol = str(tgt_sym.iloc[idx])
             s = str(src_entrez.iloc[idx])
             t = str(tgt_entrez.iloc[idx])
             
             if s not in target_genes_set or t not in target_genes_set:
                 continue
-            if bool(omnipath_consensus_only) and consensus_direction_mask is not None and not bool(consensus_direction_mask.iloc[idx]):
-                continue
             if bool(omnipath_is_directed_only) and is_directed_mask is not None and not bool(is_directed_mask.iloc[idx]):
                 continue
             sign = 1.0
-            if inhib is not None and bool(inhib.iloc[idx]) and (stim is None or not bool(stim.iloc[idx])):
+            stim_i = bool(stim.iloc[idx]) if stim is not None else False
+            inhib_i = bool(inhib.iloc[idx]) if inhib is not None else False
+            if consensus_stim is not None and consensus_inhib is not None:
+                cs = bool(consensus_stim.iloc[idx])
+                ci = bool(consensus_inhib.iloc[idx])
+                if (stim_i and inhib_i) or ((not stim_i) and (not inhib_i)):
+                    stim_i = cs
+                    inhib_i = ci
+            if inhib_i and not stim_i:
                 sign = -1.0
-            elif stim is not None and bool(stim.iloc[idx]) and (inhib is None or not bool(inhib.iloc[idx])):
+            elif stim_i and not inhib_i:
                 sign = 1.0
+            else: # 各种数据库对方向没有共识，直接丢弃，防止引入噪音，或者有共识，但是共识也冲突
+                continue
             w = float(default_weight) * float(sign)
 
-            if bool(omnipath_consensus_only):
-                is_dir = bool(consensus_direction_mask.iloc[idx]) if consensus_direction_mask is not None else False
-            elif bool(omnipath_is_directed_only):
+            if bool(omnipath_is_directed_only):
                 is_dir = bool(is_directed_mask.iloc[idx]) if is_directed_mask is not None else False
             else:
                 is_dir = False
-                if consensus_direction_mask is not None and bool(consensus_direction_mask.iloc[idx]):
-                    is_dir = True
-                elif is_directed_mask is not None and bool(is_directed_mask.iloc[idx]):
+                if is_directed_mask is not None and bool(is_directed_mask.iloc[idx]):
                     is_dir = True
 
             if is_dir:
@@ -528,11 +508,17 @@ def build_combined_gnn(
             "source_genesymbol",
             "target_genesymbol",
             directed_only=True,
-            omnipath_consensus_only=bool(omnipath_consensus_only),
             omnipath_is_directed_only=bool(omnipath_is_directed_only),
+            consensus_stim_col="is_stimulation",
+            consensus_inhib_col="is_inhibition",
+            require_sign_cols=True,
         )
         edges_tf = edges_tf_dir
         print(f"TF 边数: {len(edges_tf)}")
+        edges_tf_debug = pd.DataFrame(edges_tf, columns=["src_entrez", "dst_entrez", "sign"]).astype({"src_entrez": str, "dst_entrez": str})
+        inv_symbol_to_entrez = {str(v): str(k) for k, v in symbol_to_entrez.items()}
+        edges_tf_debug["src_symbol"] = edges_tf_debug["src_entrez"].map(inv_symbol_to_entrez).fillna(edges_tf_debug["src_entrez"])
+        edges_tf_debug["dst_symbol"] = edges_tf_debug["dst_entrez"].map(inv_symbol_to_entrez).fillna(edges_tf_debug["dst_entrez"])
         edges_directed.extend(edges_tf)
 
     # 3. 加载 PPI
@@ -544,13 +530,19 @@ def build_combined_gnn(
             "source_genesymbol",
             "target_genesymbol",
             directed_only=False,
-            omnipath_consensus_only=bool(omnipath_consensus_only),
             omnipath_is_directed_only=bool(omnipath_is_directed_only),
+            consensus_stim_col="consensus_stimulation",
+            consensus_inhib_col="consensus_inhibition",
+            require_sign_cols=True,
         )
         edges_directed.extend(edges_ppi_dir)
         edges_undirected.extend(edges_ppi_undir)
-        print(f"PPI 边数: {len(edges_ppi_dir) + len(edges_ppi_undir)}")
         
+        edges_ppi_debug = pd.DataFrame(edges_ppi_dir, columns=["src_entrez", "dst_entrez", "sign"]).astype({"src_entrez": str, "dst_entrez": str})
+        inv_symbol_to_entrez = {str(v): str(k) for k, v in symbol_to_entrez.items()}
+        edges_ppi_debug["src_symbol"] = edges_ppi_debug["src_entrez"].map(inv_symbol_to_entrez).fillna(edges_ppi_debug["src_entrez"])
+        edges_ppi_debug["dst_symbol"] = edges_ppi_debug["dst_entrez"].map(inv_symbol_to_entrez).fillna(edges_ppi_debug["dst_entrez"])
+        print(f"PPI 边数: {len(edges_ppi_dir) + len(edges_ppi_undir)}")
     directed_map = {}
     for s, t, w in edges_directed:
         key = (str(s), str(t))
@@ -561,17 +553,17 @@ def build_combined_gnn(
             directed_map[key] = w if abs(w) > abs(prev) else prev
     edges_directed = [(s, t, w) for (s, t), w in directed_map.items()]
 
-    undirected_map = {}
-    for s, t, w in edges_undirected:
-        s = str(s)
-        t = str(t)
-        u, v = (s, t) if s <= t else (t, s)
-        key = (u, v)
-        prev = undirected_map.get(key)
-        undirected_map[key] = w if prev is None else max(prev, w)
-    edges_undirected = [(u, v, w) for (u, v), w in undirected_map.items()]
+    # undirected_map = {}
+    # for s, t, w in edges_undirected:
+    #     s = str(s)
+    #     t = str(t)
+    #     u, v = (s, t) if s <= t else (t, s)
+    #     key = (u, v)
+    #     prev = undirected_map.get(key)
+    #     undirected_map[key] = w if prev is None else max(prev, w)
+    # edges_undirected = [(u, v, w) for (u, v), w in undirected_map.items()]
 
-    edges_all = edges_directed + edges_undirected
+   # edges_all = edges_directed + edges_undirected
 
     #if target_genes is not None and len(target_genes) > 0:
     node_list = target_entrez
@@ -845,18 +837,6 @@ def _load_expression_data(path, target_samples, target_genes):
     df_subset = df.loc[valid_samples]
     return df_subset, valid_samples
 
-def _generate_landmark_symbol_to_entrez(landmark_path):
-    """从 landmark JSON 文件生成 Symbol->Entrez 映射"""
-    symbol_to_entrez = {}
-    try:
-        with open(landmark_path, 'r') as f:
-            genes_meta = json.load(f)
-        for g in genes_meta:
-            if 'gene_symbol' in g and 'entrez_id' in g:
-                symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
-    except Exception as e:
-        print(f"生成 Landmark Symbol->Entrez 映射失败: {e}")
-    return symbol_to_entrez
 
 def _load_drug_target(drug_target_path,full_symbol_to_entrez,gene_to_idx):
     drug_to_targets = {} 
@@ -875,7 +855,9 @@ def _load_drug_target(drug_target_path,full_symbol_to_entrez,gene_to_idx):
                 if entrez in gene_to_idx:
                     target_indices.append(gene_to_idx[entrez])
         if target_indices:
-            drug_to_targets[pert_id] = set(target_indices)
+            if pert_id not in drug_to_targets:
+                drug_to_targets[pert_id] = set()
+            drug_to_targets[pert_id].update(target_indices)
     return drug_to_targets
 
 def _load_drug_fingerprint(fingerprint_path):
@@ -1027,15 +1009,23 @@ def load_rfa_data(
     ctl_rows = siginfo[siginfo['pert_type'] == 'ctl_vehicle']
     ctl_id_to_cell = {}
     ctl_id_to_batch = {}
+    ctl_id_to_det_plate = {}
     
     all_ctl_ids = []
     for _, row in ctl_rows.iterrows():
         d_ids = str(row['distil_ids']).split('|')
         c_name = row['cell_iname']
         b_name = str(row.get('bead_batch', 'Unknown'))
-        for d_id in d_ids:
+        plates_raw = row.get('det_plates', 'Unknown')
+        plates = str(plates_raw).split('|')
+        for i, d_id in enumerate(d_ids):
+            if len(plates) == len(d_ids):
+                p_name = str(plates[i])
+            else:
+                p_name = str(d_id).split(':')[0] if ':' in str(d_id) else str(plates_raw)
             ctl_id_to_cell[d_id] = c_name
             ctl_id_to_batch[d_id] = b_name
+            ctl_id_to_det_plate[d_id] = p_name
             all_ctl_ids.append(d_id)
             
     all_ctl_ids = sorted(list(set(all_ctl_ids)))
@@ -1088,12 +1078,19 @@ def load_rfa_data(
         c_name = row['cell_iname']
         p_id = row['pert_id']
         b_name = str(row.get('bead_batch', 'Unknown'))
-        for d_id in d_ids:
+        plates_raw = row.get('det_plates', 'Unknown')
+        plates = str(plates_raw).split('|')
+        for i, d_id in enumerate(d_ids):
+            if len(plates) == len(d_ids):
+                p_name = str(plates[i])
+            else:
+                p_name = str(d_id).split(':')[0] if ':' in str(d_id) else str(plates_raw)
             trt_samples.append({
                 'distil_id': d_id,
                 'cell_iname': c_name,
                 'pert_id': p_id,
                 'bead_batch': b_name,
+                'det_plate': p_name,
             })
     print(f"发现 {len(trt_samples)} 个高质量 Treatment 样本。")
 
@@ -1109,6 +1106,7 @@ def load_rfa_data(
         "distil_id": df_ctl_all.index.astype(str),
         "cell_iname": [ctl_id_to_cell.get(idx, "Unknown") for idx in df_ctl_all.index.astype(str)],
         "bead_batch": [ctl_id_to_batch.get(idx, "Unknown") for idx in df_ctl_all.index.astype(str)],
+        "det_plate": [ctl_id_to_det_plate.get(idx, "Unknown") for idx in df_ctl_all.index.astype(str)],
     }).drop_duplicates()
 
     n_ctl_per_trt = int(ctl_residual_pool_size) if int(ctl_residual_pool_size) > 0 else 3
@@ -1119,6 +1117,9 @@ def load_rfa_data(
     final_pert_ids = []
     final_cell_names = []
     final_batch_names = []
+    final_det_plate_names = []
+    final_trt_distil_ids = []
+    final_ctl_distil_ids = []
 
     trt_info_map = {s['distil_id']: s for s in trt_samples}
     all_ctl_ids_list = ctl_index["distil_id"].astype(str).tolist()
@@ -1129,12 +1130,25 @@ def load_rfa_data(
         info = trt_info_map[trt_id]
         cell = info['cell_iname']
         batch = str(info.get('bead_batch', 'Unknown'))
-        ctl_candidates = ctl_index[(ctl_index['cell_iname'] == cell) & (ctl_index['bead_batch'] == batch)]['distil_id'].astype(str).tolist()
+        det_plate = str(info.get('det_plate', 'Unknown'))
+        # trt中的样本没有在sign info中找到对应的，直接过滤
+        if det_plate == 'Unknown' or batch == 'Unknown':
+            continue
+        ctl_candidates = ctl_index[
+            (ctl_index['cell_iname'] == cell) &
+            (ctl_index['bead_batch'] == batch) &
+            (ctl_index['det_plate'] == det_plate)
+        ]['distil_id'].astype(str).tolist()
         if len(ctl_candidates) == 0:
-            ctl_candidates = ctl_index[ctl_index['cell_iname'] == cell]['distil_id'].astype(str).tolist()
+            ctl_candidates = ctl_index[
+                (ctl_index['cell_iname'] == cell) &
+                (ctl_index['det_plate'] == det_plate)
+            ]['distil_id'].astype(str).tolist()
         if len(ctl_candidates) == 0:
-            ctl_candidates = all_ctl_ids_list
+            continue
+
         replace = len(ctl_candidates) < n_ctl_per_trt
+        # 数量不足可以重复选择
         sampled_ctl = rng.choice(ctl_candidates, size=n_ctl_per_trt, replace=replace)
         x_trt = row.values.astype(np.float32)
         for ctl_id in sampled_ctl:
@@ -1146,10 +1160,14 @@ def load_rfa_data(
             final_pert_ids.append(info['pert_id'])
             final_cell_names.append(cell)
             final_batch_names.append(batch)
+            final_det_plate_names.append(det_plate)
+            final_trt_distil_ids.append(str(trt_id))
+            final_ctl_distil_ids.append(str(ctl_id))
 
     X_trt_arr = np.array(final_trt_list, dtype=np.float32)
     X_ctl_arr = np.array(final_ctl_list, dtype=np.float32)
     final_batch_names = list(final_batch_names)
+    final_det_plate_names = list(final_det_plate_names)
 
     print(f"数据组装完成: {X_trt_arr.shape}")
     # 7. 加载药物靶点 (Target Encoding) & 指纹 (Fingerprints)
@@ -1175,9 +1193,8 @@ def load_rfa_data(
         if fp_dim > 0 and pid in drug_to_fp:
             has_fp[i] = True
 
-    keep_mask = has_target | has_fp
-    # 打印 分别有多少个样本 有 targets  ，有 fingerprints
-    print(f"  保留 {np.sum(keep_mask)} 个样本 (Target/FP 任一)")
+    keep_mask = has_target & has_fp
+    print(f"  保留 {np.sum(keep_mask)} 个样本 (必须同时有 targets 与 fingerprints)")
     print(f"  有 targets 的样本数: {np.sum(has_target)}")
     print(f"  有 fingerprints 的样本数: {np.sum(has_fp)}")
 
@@ -1192,6 +1209,9 @@ def load_rfa_data(
         final_pert_ids = [final_pert_ids[i] for i in range(len(final_pert_ids)) if keep_mask[i]]
         final_cell_names = [final_cell_names[i] for i in range(len(final_cell_names)) if keep_mask[i]]
         final_batch_names = [final_batch_names[i] for i in range(len(final_batch_names)) if keep_mask[i]]
+        final_det_plate_names = [final_det_plate_names[i] for i in range(len(final_det_plate_names)) if keep_mask[i]]
+        final_trt_distil_ids = [final_trt_distil_ids[i] for i in range(len(final_trt_distil_ids)) if keep_mask[i]]
+        final_ctl_distil_ids = [final_ctl_distil_ids[i] for i in range(len(final_ctl_distil_ids)) if keep_mask[i]]
 
     print(f"最终有效数据集: {X_trt_arr.shape}")
 
@@ -1235,8 +1255,11 @@ def load_rfa_data(
         'drug_has_target': has_target.astype(np.float32),
         'drug_has_fp': has_fp.astype(np.float32),
         'drug_ids': final_pert_ids,
+        'trt_distil_ids': final_trt_distil_ids,
+        'ctl_distil_ids': final_ctl_distil_ids,
         'cell_names': final_cell_names, # 新增: 返回细胞系名称
         'batch_ids': final_batch_names,
+        'det_plate_ids': final_det_plate_names,
         'input_dim': num_genes,
         'node_feature_dim': 2,
         'target_genes': target_genes,

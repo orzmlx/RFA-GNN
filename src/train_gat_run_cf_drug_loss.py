@@ -76,11 +76,12 @@ class PCCCallback(keras.callbacks.Callback):
         logs = logs or {}
         target_scale = None
         try:
-            inner = getattr(self.model, "gat", None)
+            inner = getattr(getattr(self.model, "core", None), "gat", None)
             if inner is not None and hasattr(inner, "target_scale_logit"):
                 target_scale = float(tf.nn.softplus(inner.target_scale_logit).numpy())
         except Exception:
             target_scale = None
+
         if len(self.train_data) == 4:
             ctl_tr, drug_tr, cell_tr, y_tr = self.train_data
             ctl_va, drug_va, cell_va, y_va = self.val_data
@@ -137,12 +138,24 @@ class PCCCallback(keras.callbacks.Callback):
                 cell_mean=self.cell_mean,
                 y_is_residual=self.y_is_residual,
             )
+
         logs["pcc"] = tr["pcc"]
         logs["val_pcc"] = va["pcc"]
-        if target_scale is None:
+
+        extra = []
+        for k in ["loss_full", "loss_cf", "cf_gap", "loss_hinge"]:
+            v = logs.get(k)
+            if v is not None:
+                try:
+                    extra.append(f"{k}={float(v):.4f}")
+                except Exception:
+                    pass
+        if target_scale is not None:
+            extra.append(f"target_scale={target_scale:.4f}")
+        if len(extra) == 0:
             print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f}")
         else:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f} target_scale={target_scale:.4f}")
+            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f} " + " ".join(extra))
 
 
 class GATWrapper(keras.Model):
@@ -153,16 +166,16 @@ class GATWrapper(keras.Model):
         self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
         self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
 
-    def call(self, inputs):
+    def call(self, inputs, training=False):
         if self.use_drug_fp_embedding:
             ctl, drug_targets, cell_idx, drug_fp = inputs
             cell_idx = tf.cast(cell_idx, tf.int32)
             if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
                 drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-            return self.gat([self.adj, ctl, drug_targets, cell_idx, drug_fp])
+            return self.gat([self.adj, ctl, drug_targets, cell_idx, drug_fp], training=training)
         ctl, drug_targets, cell_idx = inputs
         cell_idx = tf.cast(cell_idx, tf.int32)
-        return self.gat([self.adj, ctl, drug_targets, cell_idx])
+        return self.gat([self.adj, ctl, drug_targets, cell_idx], training=training)
 
 
 class GATWrapperSparse(keras.Model):
@@ -174,16 +187,127 @@ class GATWrapperSparse(keras.Model):
         self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
         self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
 
-    def call(self, inputs):
+    def call(self, inputs, training=False):
         if self.use_drug_fp_embedding:
             ctl, drug_targets, cell_idx, drug_fp = inputs
             cell_idx = tf.cast(cell_idx, tf.int32)
             if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
                 drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-            return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx, drug_fp])
+            return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx, drug_fp], training=training)
         ctl, drug_targets, cell_idx = inputs
         cell_idx = tf.cast(cell_idx, tf.int32)
-        return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx])
+        return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx], training=training)
+
+
+class DrugContrastiveTrainer(keras.Model):
+    def __init__(self, core_model, loss_mask, cf_mode="zero", eval_cf_mode=None, cf_lambda=1.0, cf_margin=0.1, fp_dim=0):
+        super().__init__()
+        self.core = core_model
+        self.loss_mask = tf.constant(loss_mask, dtype=tf.float32)
+        self.cf_mode = str(cf_mode)
+        self.eval_cf_mode = str(eval_cf_mode) if eval_cf_mode is not None else str(cf_mode)
+        self.cf_lambda = float(cf_lambda)
+        self.cf_margin = float(cf_margin)
+        self.fp_dim = int(fp_dim)
+        self.metric_total = keras.metrics.Mean(name="loss")
+        self.metric_full = keras.metrics.Mean(name="loss_full")
+        self.metric_cf = keras.metrics.Mean(name="loss_cf")
+        self.metric_hinge = keras.metrics.Mean(name="loss_hinge")
+        self.metric_gap = keras.metrics.Mean(name="cf_gap")
+
+    @property
+    def metrics(self):
+        return [self.metric_total, self.metric_full, self.metric_cf, self.metric_hinge, self.metric_gap]
+
+    def call(self, inputs, training=False):
+        return self.core(inputs, training=training)
+
+    def _pcc_loss(self, y_true, y_pred):
+        mx = tf.reduce_mean(y_true, axis=1, keepdims=True)
+        my = tf.reduce_mean(y_pred, axis=1, keepdims=True)
+        xm = y_true - mx
+        ym = y_pred - my
+        r_num = tf.reduce_sum(xm * ym, axis=1)
+        r_den = tf.sqrt(tf.reduce_sum(tf.square(xm), axis=1) * tf.reduce_sum(tf.square(ym), axis=1) + 1e-8)
+        r = r_num / r_den
+        return 1.0 - tf.reduce_mean(r)
+
+    def _masked_combined_loss(self, y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+        mask = tf.cast(self.loss_mask, tf.float32)
+        mse = tf.reduce_sum(tf.square(y_true - y_pred) * mask)
+        valid_count = tf.reduce_sum(mask)
+        batch_n = tf.cast(tf.shape(y_true)[0], tf.float32)
+        mse = mse / tf.maximum(valid_count * batch_n, 1.0)
+        valid_indices = tf.where(self.loss_mask[0] > 0)[:, 0]
+        yt = tf.gather(y_true, valid_indices, axis=1)
+        yp = tf.gather(y_pred, valid_indices, axis=1)
+        pcc = self._pcc_loss(yt, yp)
+        return mse + 5.0 * pcc
+
+    def _make_counterfactual_inputs(self, x, mode=None):
+        mode = self.cf_mode if mode is None else str(mode)
+        if len(x) == 3:
+            ctl, drug_targets, cell_idx = x
+            drug_fp = None
+        else:
+            ctl, drug_targets, cell_idx, drug_fp = x
+
+        if mode == "zero":
+            drug_cf = tf.zeros_like(drug_targets, dtype=tf.float32)
+            if drug_fp is None:
+                return (ctl, drug_cf, cell_idx)
+            if drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
+                fp_cf = tf.zeros((tf.shape(ctl)[0], self.fp_dim), dtype=tf.float32)
+            else:
+                fp_cf = tf.zeros_like(drug_fp, dtype=tf.float32)
+            return (ctl, drug_cf, cell_idx, fp_cf)
+
+        perm = tf.random.shuffle(tf.range(tf.shape(ctl)[0]))
+        drug_cf = tf.gather(drug_targets, perm, axis=0)
+        if drug_fp is None:
+            return (ctl, drug_cf, cell_idx)
+        fp_cf = tf.gather(drug_fp, perm, axis=0)
+        return (ctl, drug_cf, cell_idx, fp_cf)
+
+    def train_step(self, data):
+        x, y = data
+        with tf.GradientTape() as tape:
+            y_full = self.core(x, training=True)
+            x_cf = self._make_counterfactual_inputs(x, mode=self.cf_mode)
+            y_cf = self.core(x_cf, training=True)
+            loss_full = self._masked_combined_loss(y, y_full)
+            loss_cf = self._masked_combined_loss(y, y_cf)
+            gap = loss_cf - loss_full
+            hinge = tf.nn.relu(self.cf_margin - gap)
+            loss = loss_full + tf.cast(self.cf_lambda, tf.float32) * hinge
+        grads = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+        self.metric_total.update_state(loss)
+        self.metric_full.update_state(loss_full)
+        self.metric_cf.update_state(loss_cf)
+        self.metric_hinge.update_state(hinge)
+        self.metric_gap.update_state(gap)
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        x, y = data
+        y_full = self.core(x, training=False)
+        x_cf = self._make_counterfactual_inputs(x, mode=self.eval_cf_mode)
+        y_cf = self.core(x_cf, training=False)
+        loss_full = self._masked_combined_loss(y, y_full)
+        loss_cf = self._masked_combined_loss(y, y_cf)
+        gap = loss_cf - loss_full
+        hinge = tf.nn.relu(self.cf_margin - gap)
+        loss = loss_full + tf.cast(self.cf_lambda, tf.float32) * hinge
+        self.metric_total.update_state(loss)
+        self.metric_full.update_state(loss_full)
+        self.metric_cf.update_state(loss_cf)
+        self.metric_hinge.update_state(hinge)
+        self.metric_gap.update_state(gap)
+        return {m.name: m.result() for m in self.metrics}
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -192,12 +316,12 @@ def main():
     parser.add_argument("--max_samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--use_landmark_genes", action="store_true", default=True)
+    parser.add_argument("--use_landmark_genes", action="store_true", default=False)
     parser.add_argument("--use_drug_fp_embedding", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use_drug_embedding", dest="use_drug_fp_embedding", action="store_true")
     parser.add_argument("--no-use_drug_embedding", dest="use_drug_fp_embedding", action="store_false")
     parser.add_argument("--sparse_gat", action="store_true", default=False)
-    parser.add_argument("--ctl_pair_k", type=int, default=1)
+    parser.add_argument("--ctl_pair_k", type=int, default=3)
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.2)
@@ -216,6 +340,10 @@ def main():
     parser.add_argument("--eval_sanity_seed", type=int, default=0)
     parser.add_argument("--save_gat_weights", default="")
     parser.add_argument("--save_meta_json", default="")
+    parser.add_argument("--cf_mode", choices=["shuffle", "zero"], default="zero")
+    parser.add_argument("--eval_cf_mode", choices=["", "shuffle", "zero"], default="")
+    parser.add_argument("--cf_lambda", type=float, default=1.0)
+    parser.add_argument("--cf_margin", type=float, default=0.1)
     args = parser.parse_args()
 
     np.random.seed(42)
@@ -223,9 +351,9 @@ def main():
 
     root = args.root
     if not os.path.exists(root):
-        root = '/local/data1/liume102/rfa'
+        root = "/local/data1/liume102/rfa"
         if not os.path.exists(root):
-             root = '/local/data1/liume102/src'
+            root = "/local/data1/liume102/src"
     src = os.path.join(root, "src")
     if src not in sys.path:
         sys.path.insert(0, src)
@@ -235,7 +363,6 @@ def main():
 
     tf_path = os.path.join(root, "data/omnipath/omnipath_tf_regulons.csv")
     ppi_path = os.path.join(root, "data/omnipath/omnipath_interactions.csv")
-    string_path = os.path.join(root, "data/string_interactions_mapped.csv")
     full_gene_path = os.path.join(root, "data/GSE92742_Broad_LINCS_gene_info.txt")
     siginfo_path = os.path.join(root, "data/siginfo_beta.txt")
     landmark_path = os.path.join(root, "data/landmark_genes.json")
@@ -245,9 +372,7 @@ def main():
     fingerprint_path = os.path.join(root, "data/new_morgan_fingerprints.csv")
 
     cell_lines = args.cell_line
-    if cell_lines is None:
-        pass
-    else:
+    if cell_lines is not None:
         s = str(cell_lines).strip()
         if s == "" or s.upper() in {"ALL", "NONE", "NULL"}:
             cell_lines = None
@@ -270,7 +395,7 @@ def main():
     adj_matrix, node_list, gene2idx, edge_index = build_combined_gnn(
         tf_path=tf_path,
         ppi_path=ppi_path,
-        #string_path=None,
+       # string_path=None,
         target_genes=data["target_genes"],
         confid_threshold=0.9,
         directed=True,
@@ -295,12 +420,6 @@ def main():
     batch_ids_arr = np.asarray(data.get("batch_ids", ["Unknown"] * len(drug_ids)), dtype=str)
     trt_distil_ids_arr = np.asarray(data.get("trt_distil_ids", [""] * len(drug_ids)), dtype=str)
 
-    if not bool(args.use_landmark_genes):
-        print(
-            "WARNING: use_landmark_genes=False (full genes). 当前实现会构建 dense adj(N,N) 并计算 scores(B,N,N)，"
-            "对 N=12328 需要极大内存/显存。建议在服务器上运行或改为基于 edge_index 的稀疏 GAT。"
-        )
-
     if int(args.max_samples) > 0 and len(X_ctl) > int(args.max_samples):
         rng = np.random.default_rng(42)
         idx = rng.choice(len(X_ctl), size=int(args.max_samples), replace=False)
@@ -324,7 +443,6 @@ def main():
     test_frac = float(args.test_frac)
     if test_frac <= 0.0 or test_frac >= 1.0:
         raise ValueError("--test_frac 需要在 (0, 1) 之间")
-
 
     if split_mode == "cold_cell":
         unique_cells = np.unique(cell_idx)
@@ -400,40 +518,13 @@ def main():
         hidden_dim=int(args.hidden_dim),
         num_heads=int(args.num_heads),
         dropout=float(args.dropout),
-        use_residual=False, # 这里不要设成True,当前预测的是delta, 而不是绝对的表达值
+        use_residual=False,
         use_drug_fp_embedding=bool(args.use_drug_fp_embedding),
         attention_layer_number=int(args.attention_layers),
         per_node_embedding=bool(args.per_node_head),
         use_sparse_adj=bool(args.sparse_gat),
         use_cell_embedding=not bool(args.no_cell_embedding),
     )
-
-    loss_mask = tf.constant(data["loss_mask"], dtype=tf.float32)
-
-    def pcc_loss(y_true, y_pred):
-        mx = tf.reduce_mean(y_true, axis=1, keepdims=True)
-        my = tf.reduce_mean(y_pred, axis=1, keepdims=True)
-        xm = y_true - mx
-        ym = y_pred - my
-        r_num = tf.reduce_sum(xm * ym, axis=1)
-        r_den = tf.sqrt(tf.reduce_sum(tf.square(xm), axis=1) * tf.reduce_sum(tf.square(ym), axis=1) + 1e-8)
-        r = r_num / r_den
-        return 1.0 - tf.reduce_mean(r)
-
-    def masked_combined_loss(y_true, y_pred):
-        y_true = tf.cast(y_true, tf.float32)
-        y_pred = tf.cast(y_pred, tf.float32)
-        mask = tf.cast(loss_mask, tf.float32)
-
-        mse = tf.reduce_sum(tf.square(y_true - y_pred) * mask)
-        valid_count = tf.reduce_sum(mask)
-        batch_n = tf.cast(tf.shape(y_true)[0], tf.float32)
-        mse = mse / tf.maximum(valid_count * batch_n, 1.0)
-        valid_indices = tf.where(loss_mask[0] > 0)[:, 0]
-        yt = tf.gather(y_true, valid_indices, axis=1)
-        yp = tf.gather(y_pred, valid_indices, axis=1)
-        pcc = pcc_loss(yt, yp)
-        return mse + 5.0 * pcc
 
     if bool(args.sparse_gat):
         edge_index_np = edge_index.astype(np.int64)
@@ -444,7 +535,7 @@ def main():
         self_idx = np.arange(n, dtype=np.int64)
         edge_index_full = np.concatenate([edge_index_np, np.stack([self_idx, self_idx], axis=0)], axis=1)
         edge_weight_full = np.concatenate([edge_weight, np.ones((n,), dtype=np.float32)], axis=0)
-        wrapped_model = GATWrapperSparse(
+        core = GATWrapperSparse(
             model,
             edge_index_full,
             edge_weight_full,
@@ -453,15 +544,22 @@ def main():
         )
         adj_matrix = None
     else:
-        wrapped_model = GATWrapper(model, adj_matrix, use_drug_fp_embedding=bool(args.use_drug_fp_embedding), fp_table=fp_table)
-    wrapped_model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=5e-4),
-        loss=masked_combined_loss,
-        metrics=[keras.metrics.MeanSquaredError()],
-        run_eagerly=bool(args.run_eagerly),
-    )
+        core = GATWrapper(model, adj_matrix, use_drug_fp_embedding=bool(args.use_drug_fp_embedding), fp_table=fp_table)
 
-    if args.use_drug_fp_embedding:
+    trainer = DrugContrastiveTrainer(
+        core_model=core,
+        loss_mask=data["loss_mask"],
+        cf_mode=str(args.cf_mode),
+        eval_cf_mode=(str(args.eval_cf_mode).strip() or str(args.cf_mode)),
+        cf_lambda=float(args.cf_lambda),
+        cf_margin=float(args.cf_margin),
+        fp_dim=int(fp_dim),
+    )
+    trainer.compile(optimizer=keras.optimizers.Adam(learning_rate=5e-4), run_eagerly=bool(args.run_eagerly))
+
+    if bool(args.use_drug_fp_embedding):
+        train_x = (train_ctl, train_drug, train_cells, train_fp)
+        val_x = (test_ctl, test_drug, test_cells, test_fp)
         pcc_cb = PCCCallback(
             loss_mask=data["loss_mask"],
             train_data=(train_ctl, train_drug, train_cells, train_fp, train_trt),
@@ -472,6 +570,8 @@ def main():
             y_is_residual=residualize_target,
         )
     else:
+        train_x = (train_ctl, train_drug, train_cells)
+        val_x = (test_ctl, test_drug, test_cells)
         pcc_cb = PCCCallback(
             loss_mask=data["loss_mask"],
             train_data=(train_ctl, train_drug, train_cells, train_trt),
@@ -482,29 +582,12 @@ def main():
             y_is_residual=residualize_target,
         )
 
-    if args.use_drug_fp_embedding:
-        wrapped_model.fit(
-            [train_ctl, train_drug, train_cells, train_fp],
-            train_trt,
-            epochs=int(args.epochs),
-            batch_size=int(args.batch_size),
-            callbacks=[pcc_cb],
-            validation_data=([test_ctl, test_drug, test_cells, test_fp], test_trt),
-            verbose=0,
-        )
-    else:
-        wrapped_model.fit(
-            [train_ctl, train_drug, train_cells],
-            train_trt,
-            epochs=int(args.epochs),
-            batch_size=int(args.batch_size),
-            callbacks=[pcc_cb],
-            validation_data=([test_ctl, test_drug, test_cells], test_trt),
-            verbose=0,
-        )
+    ds_train = tf.data.Dataset.from_tensor_slices((train_x, train_trt)).shuffle(20000, seed=42, reshuffle_each_iteration=True).batch(int(args.batch_size))
+    ds_val = tf.data.Dataset.from_tensor_slices((val_x, test_trt)).batch(int(args.batch_size))
+    trainer.fit(ds_train, epochs=int(args.epochs), callbacks=[pcc_cb], validation_data=ds_val, verbose=0)
 
     train_metrics = eval_pcc_mse(
-        wrapped_model,
+        trainer,
         train_ctl,
         train_drug,
         train_cells,
@@ -517,7 +600,7 @@ def main():
         y_is_residual=residualize_target,
     )
     test_metrics = eval_pcc_mse(
-        wrapped_model,
+        trainer,
         test_ctl,
         test_drug,
         test_cells,
@@ -539,7 +622,7 @@ def main():
         else:
             zero_fp = None
         m = eval_pcc_mse(
-            wrapped_model,
+            trainer,
             test_ctl,
             zero_drug,
             test_cells,
@@ -563,7 +646,7 @@ def main():
         else:
             shuf_fp = None
         m = eval_pcc_mse(
-            wrapped_model,
+            trainer,
             test_ctl,
             shuf_drug,
             test_cells,
@@ -609,6 +692,9 @@ def main():
             "per_node_head": bool(args.per_node_head),
             "no_cell_embedding": bool(args.no_cell_embedding),
             "no_residualize_target_by_cell": bool(args.no_residualize_target_by_cell),
+            "cf_mode": str(args.cf_mode),
+            "cf_lambda": float(args.cf_lambda),
+            "cf_margin": float(args.cf_margin),
             "test_ids_npy": test_ids_path,
             "train_metrics": train_metrics,
             "test_metrics": test_metrics,
