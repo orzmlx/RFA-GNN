@@ -199,6 +199,59 @@ class GATWrapperSparse(keras.Model):
         return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx], training=training)
 
 
+"""
+## Counterfactual drug hinge regularization
+
+`DrugContrastiveTrainer` implements a form of **counterfactual regularization**. The goal is to encourage the model to
+**actually use drug information** (targets / fingerprints) at prediction time, instead of fitting the training set mostly from
+the control expression and the cell embedding.
+
+### core operation
+
+For the same minibatch we run two forward passes:
+
+- factual input: `x = (ctl, drug, cell[, fp])`, producing `y_full`
+- counterfactual input: we only corrupt drug information, `x_cf = (ctl, drug_cf, cell[, fp_cf])`, producing `y_cf`
+
+The counterfactual `drug_cf` is constructed according to `cf_mode`:
+
+- `zero`: replace drug targets / fingerprint with zeros
+- `shuffle`: shuffle drug targets / fingerprint within the minibatch (equivalent to providing the wrong drug)
+
+Importantly, **`ctl` and `cell_idx` are kept identical** between factual and counterfactual inputs; only drug inputs are modified.
+
+### 为什么要 hinge（margin）约束
+
+Let the supervised loss be `L(·)` (here: masked MSE + a PCC term). We compute:
+
+- `loss_full = L(y, y_full)`
+- `loss_cf   = L(y, y_cf)`
+- `gap = loss_cf - loss_full`
+- `hinge = relu(cf_margin - gap)`
+- `loss = loss_full + cf_lambda * hinge`
+
+The hinge term enforces the margin constraint:
+
+`loss_cf - loss_full >= cf_margin`
+
+That is: **once drug information is corrupted, the error against the true label must increase by at least a margin**.
+
+This helps prevent a common failure mode where the model largely ignores drug inputs, making `y_full ≈ y_cf` and thus
+`loss_full ≈ loss_cf`. In that case `gap` is small, the hinge stays positive, and an extra penalty is applied.
+To reduce this penalty to zero, the model must increase `gap`, and the only available difference between the two inputs is
+the drug information. Therefore the model is pushed to learn prediction logic that is sensitive to drug inputs.
+
+### 超参数含义
+
+- `cf_margin`: how much worse the counterfactual must be compared with the factual (default: 0.1)
+- `cf_lambda`: weight of the hinge penalty; larger values emphasize drug contribution more strongly
+
+### 重要说明
+
+This constraint encourages "factual is better than counterfactual", but it does not guarantee improved generalization in all cases.
+After training, it should be validated with sanity checks (performance should drop under drug_zero / drug_shuffle) and with
+cold drug / cold cell evaluation to confirm that the learned drug dependence is meaningful.
+"""
 class DrugContrastiveTrainer(keras.Model):
     def __init__(self, core_model, loss_mask, cf_mode="zero", eval_cf_mode=None, cf_lambda=1.0, cf_margin=0.1, fp_dim=0):
         super().__init__()
@@ -241,7 +294,8 @@ class DrugContrastiveTrainer(keras.Model):
         batch_n = tf.cast(tf.shape(y_true)[0], tf.float32)
         mse = mse / tf.maximum(valid_count * batch_n, 1.0)
         valid_indices = tf.where(self.loss_mask[0] > 0)[:, 0]
-        yt = tf.gather(y_true, valid_indices, axis=1)
+        # y_pred 中按指定索引取出某些列
+        yt = tf.gather(y_true, valid_indices, axis=1) 
         yp = tf.gather(y_pred, valid_indices, axis=1)
         pcc = self._pcc_loss(yt, yp)
         return mse + 5.0 * pcc

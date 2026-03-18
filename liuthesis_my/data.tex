@@ -1,0 +1,285 @@
+% !TeX root = thesis.tex
+\chapter{Data}
+
+This chapter describes the main data sources and data structure used in this thesis. We use two types of data: gene expression profiles from the CMAP LINCS 2020 dataset, and biological network information from the OmniPath database. These datasets provide complementary perspectives: the expression data captures how cells respond to different treatments, while the network data describes the regulatory and interaction relationships between genes and proteins. Together, they allow us to build models that integrate both molecular measurements and prior biological knowledge.
+
+The following sections explain the origin and structure of these datasets. We describe how the expression matrices and metadata are organized and how identifiers are used to connect expression profiles, compounds, and genes.
+
+\section{CMap LINCS Dataset}
+% 介绍主要数据来源，如LINCS L1000、OmniPath、GDSC等。
+The NIH Common Fund’s Library of Integrated Network based Cellular Signatures (LINCS) provides large scale perturbation experiments for studying how cells respond to chemical and genetic interventions. A major component of LINCS is the L1000 assay, which directly measures the expression of 978 carefully selected “landmark” genes~\cite{l1000_paper}. These landmark genes were chosen because they capture most of the variation in gene expression across many biological conditions. To expand gene coverage, the L1000 pipeline uses a statistical model to infer the expression of additional genes based on the measured landmark genes, resulting in a final gene space of 12,328 genes: 978 directly measured and 11,350 inferred. The L1000 data are widely used because they cover many perturbagens, cell lines, and experimental settings, with matched control samples.
+\subsection{L1000 Data Processing Flow}
+LINCS L1000 data have been released through both the GEO archive (Phase I and Phase II series) and later consolidated resources such as the CMap/LINCS 2020 release. Across releases, L1000 data are commonly organized into several \emph{data levels}, which represent different representations of the same experiments:
+\begin{enumerate}
+\item \textbf{Level 1: Raw fluorescence intensities.} These are the direct measurements from the L1000 assay, reflecting the signal for each probe before any normalization or correction.
+\item \textbf{Level 2: Deconvoluted probe values.} Probe signals are mapped to gene level values, resolving cases where multiple probes target the same gene.
+\item \textbf{Level 3: Normalized and inferred gene expression.} Data are normalized across samples and batches, and the expression of non landmark genes is computationally inferred using a regression model trained on landmark genes. This produces a consistent gene expression matrix for downstream analysis.
+\item \textbf{Level 4: Differential expression signatures.} Treatment and control profiles are compared to compute differential expression (for example, z scores), highlighting the effect of perturbations.
+\item \textbf{Level 5: Consensus signatures.} Multiple replicates and conditions are aggregated to produce robust consensus signatures for each perturbation.
+\end{enumerate}
+
+In this thesis, we use Level 3 data, which provide normalized and inferred gene expression profiles in a unified gene space across samples.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/data_level.png}
+    \caption{LINCS L1000 data processing workflow. The pipeline converts raw fluorescence intensities (Level 1) to deconvoluted probe values (Level 2), normalized and inferred gene expression (Level 3), differential expression signatures (Level 4), and consensus signatures (Level 5).}
+    \label{fig:data_level}
+\end{figure}
+
+ Each experiment at Level 3 is represented as a vector of gene expression values in the shared gene space. We denote a profile as $x \in \mathbb{R}^{G}$, where $G=12{,}328$ for the full gene set, and $G=978$ when only the landmark genes are used. Profiles are indexed by unique identifiers (for example, \texttt{distil\_id}), and they are stored in large matrices where rows correspond to profiles and columns correspond to genes in a fixed order. A separate gene information table provides the mapping between column indices and gene identifiers.
+
+
+\subsection{Treatment and control data}
+LINCS experiments include both compound treatment profiles and matched vehicle control profiles, covering diverse cell lines, compounds, and experimental conditions. Each profile is represented as a vector of gene expression values in the shared gene space. The associated experimental metadata (for example, cell line, compound, dose, and time) are stored in a separate table and linked to profiles through the identifier \texttt{distil\_id}.
+
+\subsection{Meta data}
+Each row in the metadata table describes a perturbation signature, including the compound identity, cell line, experimental conditions, quality control, and batch related variables. Importantly, this table provides the keys that link expression profiles to compound annotations.
+
+\paragraph{Identifiers.}
+Each signature is associated with a compound identifier \texttt{pert\_id} and a cell line name \texttt{cell\_iname}. Each signature also has a unique signature identifier \texttt{sig\_id}. The field \texttt{distil\_ids} contains one or more expression profile identifiers (\texttt{distil\_id}) that reference the corresponding rows in the Level 3 expression matrices.
+
+\paragraph{Experimental condition variables.}
+The metadata record the perturbation dose and time, including \texttt{pert\_dose}, \texttt{pert\_dose\_unit}, \texttt{pert\_time}, and \texttt{pert\_time\_unit}. These variables describe the experimental settings under which each signature was measured.
+
+\paragraph{Batch and plate context.}
+Measurements can be affected by technical factors. The metadata include a bead batch identifier (\texttt{bead\_batch}) and detection plate information (for example, \texttt{det\_plates} and \texttt{det\_wells}). These fields describe the technical context of each signature and support stratified analysis by batch or plate.
+
+\paragraph{Quality control.}
+LINCS provides several quality related fields, including \texttt{is\_hiq} and \texttt{qc\_pass}. Additional summary fields such as \texttt{tas} and related recall metrics describe signature strength and reproducibility.
+
+
+\subsection{Drug target}
+Drug related information is collected from the compound annotation table \texttt{compoundinfo\_beta.txt}. This table is indexed by \texttt{pert\_id} and provides compound names (\texttt{cmap\_name}), a target field (\texttt{target}), mechanism of action text (\texttt{moa}), and chemical identifiers such as canonical SMILES and InChIKey. SMILES is a standard text string that describes a molecule's structure (atoms and bonds) in a compact form. InChIKey is a short, fixed length hashed identifier derived from the full InChI representation; it is designed for fast lookup and matching of compounds across databases.
+
+\paragraph{Target annotations}
+The \texttt{target} field lists reported protein or gene targets for a subset of compounds. A single drug may have multiple targets, so the \texttt{target} field can contain a list of genes rather than a single entry. Importantly, target information is not available for all drugs in LINCS, about 20\% of compounds have a nonempty target annotation. This missingness is expected because many perturbagens are insufficiently characterized or have incomplete curated annotations.
+
+% \paragraph{Molecular fingerprints.}
+% To reduce reliance on incomplete target annotations, we also use molecular fingerprints (for example, Morgan/ECFP) as a fixed length representation of chemical structure. Fingerprints provide dense drug features even when curated target annotations are missing, and they support generalization across compounds based on structural similarity.
+
+\subsection{Data table linkage}
+This subsection summarizes how the main tables are linked through primary identifiers. The purpose of this linkage is to make each expression profile traceable to its experimental context (cell line, dose and time, batch/plate) and to its compound annotation. This enables reproducible grouping analyses and supports the construction of matched treatment and control comparisons in the preprocessing pipeline.
+
+\paragraph{Profile key: \texttt{distil\_id}.}
+Level 3 expression matrices are indexed by \texttt{distil\_id}. The metadata table \texttt{siginfo\_beta.txt} contains a field \texttt{distil\_ids}, which stores one or more \texttt{distil\_id} values for each signature. This provides the link from metadata to expression profiles.
+
+\paragraph{Compound key: \texttt{pert\_id}.}
+Each signature row in \texttt{siginfo\_beta.txt} includes a compound identifier \texttt{pert\_id}. The compound annotation table \texttt{compoundinfo\_beta.txt} uses the same \texttt{pert\_id} as its primary key. This provides the join from signatures to drug targets and chemical descriptors.
+
+\paragraph{Context variables for grouping.}
+The metadata also include cell context (\texttt{cell\_iname}) and batch/plate variables (for example, \texttt{bead\_batch} and \texttt{det\_plates}). These fields support grouping and stratified analysis by biological and technical context.
+
+% \textbf{Molecular fingerprints} provide a fixed length representation of a compound's chemical structure by encoding the presence of local substructures (for example, Morgan or ECFP fingerprints). Fingerprints allow the model to compare drugs based on structural similarity even when target annotations are incomplete. Both feature types are linked to expression profiles through the compound identifier.
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.95\linewidth]{figures/paired_construction_schematic.png}
+%     \caption{Schematic of paired sample construction. Treatment profiles are matched to vehicle controls using strict and relaxed context rules, then multiple controls are sampled to form paired training examples.}
+%     \label{fig:paired_construction_schematic}
+% \end{figure}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/trt_ctl_target_expr_map.png}
+    \caption{Overview of the main data tables and how identifiers connect them. Expression profiles are linked to metadata by \texttt{distil\_id} and to compound annotations by \texttt{pert\_id}. The gene interaction graph is aligned to the same gene identifiers as the expression matrix.}
+    \label{fig:trt_ctl_target_expr_map}
+\end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \fbox{\parbox{0.95\linewidth}{
+%     \textbf{Data schema used in this thesis}\par
+%     \vspace{6pt}
+%     \textbf{1) Expression matrices (Level 3)}\par
+%     \hspace*{1em}\texttt{X\_ctl[distil\_id, gene]} and \texttt{X\_trt[distil\_id, gene]}\par
+%     \hspace*{1em}rows: profiles (\texttt{distil\_id}); columns: genes (\texttt{pr\_gene\_id}, fixed order)\par
+%     \vspace{4pt}
+%     \textbf{2) Profile metadata (siginfo)}\par
+%     \hspace*{1em}\texttt{distil\_id} $\rightarrow$ \texttt{cell\_iname}, \texttt{pert\_id}, \texttt{pert\_dose}, \texttt{pert\_time}, \texttt{bead\_batch}, \texttt{det\_plate}, quality flags\par
+%     \vspace{4pt}
+%     \textbf{3) Compound information}\par
+%     \hspace*{1em}\texttt{pert\_id} $\rightarrow$ compound name, targets (\texttt{target}), MOA, SMILES, InChIKey\par
+%     \vspace{4pt}
+%     \textbf{Join keys}\par
+%     \hspace*{1em}\texttt{distil\_id}: metadata $\leftrightarrow$ expression profiles\par
+%     \hspace*{1em}\texttt{pert\_id}: metadata $\leftrightarrow$ compound annotations\par
+%     }}
+%     \caption{Diagram of the core data tables, primary identifiers, and how they are linked.}
+%     \label{fig:data_schema}
+% \end{figure}
+
+% \subsection{Treatment and control samples}
+% LINCS experiments include both treatment profiles and matched vehicle control profiles. A treatment profile corresponds to a compound applied to a specific cell line at a specific dose and time. A control profile corresponds to the same experimental setup but with vehicle only (typically DMSO). In this thesis, we use paired examples $(x_{\mathrm{ctl}}, x_{\mathrm{trt}})$ and define the supervised target as the difference $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. To reduce confounding from batch effects, controls are selected to match the treatment profile by cell line and plate context (for example, detection plate and bead batch), with a relaxed matching rule if an exact match is unavailable.
+
+% \begin{figure}[H]
+%     \centering
+%     \fbox{\parbox{0.95\linewidth}{
+%     \textbf{L1000 perturbation experiment (conceptual)}\par
+%     \vspace{6pt}
+%     \textbf{Plate setup:}\par
+%     \hspace*{1em}A multi well plate contains many wells of the same cell line.\par
+%     \hspace*{1em}Some wells receive a compound (treatment), and other wells receive vehicle only (control).\par
+%     \vspace{4pt}
+%     \textbf{Measurement:}\par
+%     \hspace*{1em}After a fixed time and dose, gene expression is measured for the 978 landmark genes.\par
+%     \hspace*{1em}Each well yields an expression vector $x \in \mathbb{R}^{G}$.\par
+%     \vspace{4pt}
+%     \textbf{Response target:}\par
+%     \hspace*{1em}For each treatment profile, select a matched control profile and compute $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$.\par
+%     \vspace{4pt}
+%     \textbf{Drug targets in a gene network:}\par
+%     \hspace*{1em}A compound is associated with a small set of target genes.\par
+%     \hspace*{1em}These targets are marked on the OmniPath gene graph and provide entry points for signal propagation.\par
+%     }}
+%     \caption{Graphical illustration of how treatment and control profiles are generated in an L1000 experiment and how drug targets connect to the gene interaction graph used by the model.}
+%     \label{fig:l1000_experiment_schematic}
+% \end{figure}
+
+
+
+
+% \begin{figure}[H]
+%     \centering
+%     \fbox{\parbox{0.95\linewidth}{
+%     \textbf{Data connections used in this thesis}\par
+%     \vspace{4pt}
+%     \textbf{Expression matrix (Level 3):} rows are profiles (\texttt{distil\_id}), columns are genes (\texttt{pr\_gene\_id})\par
+%     \textbf{Metadata (siginfo):} maps each \texttt{distil\_id} to \texttt{cell\_iname}, \texttt{pert\_id}, \texttt{pert\_dose}, time, \texttt{bead\_batch}, \texttt{det\_plates}\par
+%     \textbf{Compound table:} maps each \texttt{pert\_id} to targets\par
+%     \textbf{OmniPath graph:} provides edges between genes for message passing\par
+%     \vspace{4pt}
+%     \textbf{Training example:} pick a treatment profile and a matched control profile in the same cell and batch context, compute a response vector, and attach drug features using \texttt{pert\_id}.
+%     }}
+%     \caption{Overview of the main data tables and how identifiers connect them. Expression profiles are linked to metadata by \texttt{distil\_id} and to compound annotations by \texttt{pert\_id}. The gene interaction graph is aligned to the same gene identifiers as the expression matrix.}
+%     \label{fig:trt_ctl_target_expr_map}
+% \end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \fbox{\parbox{0.95\linewidth}{
+%     \textbf{L1000 perturbation experiment (conceptual)}\par
+%     \vspace{4pt}
+%     1) Choose a cell line and seed cells into a plate with many wells.\par
+%     2) Add a compound to treatment wells and add vehicle to control wells.\par
+%     3) After a fixed time and dose, measure gene expression.\par
+%     4) Define the response as the difference between treatment and a matched control.\par
+%     \vspace{4pt}
+%     Batch related variables such as bead batch and detection plate can affect measurements and must be tracked during evaluation.
+%     }}
+%     \caption{Illustration of a typical perturbation study design used by L1000. Each treatment profile is compared to a matched control profile to obtain a response vector.}
+%     \label{fig:l1000_plate}
+% \end{figure}
+
+\section{OmniPath Dataset}
+OmniPath is a public database that collects information about molecular interactions, signaling pathways and regulatory relationships in human cells. It combines data from many pathway and transcription factor resources and links them into a single interaction table. In this thesis we use the transcription factor regulon part of OmniPath, where each row describes a regulator, a target gene and whether the interaction is activating or inhibiting.
+
+For each interaction, OmniPath stores several fields that describe the direction and sign of the relationship, together with evidence related metadata. For example, the columns \texttt{is\_directed}, \texttt{is\_stimulation} and \texttt{is\_inhibition} indicate whether the interaction is directed and whether it is activating or inhibiting. OmniPath also records evidence strength through fields such as \texttt{sources}, \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. The column \texttt{references} lists supporting entries together with publication identifiers, and \texttt{references\_stripped} provides cleaned identifiers.
+
+OmniPath integrates interactions from many resources, so different sources may provide conflicting annotations for the same interaction, for example reporting stimulation in one database and inhibition in another. OmniPath records both the individual annotations and consensus fields, which can be used to identify and handle such conflicts during graph construction.
+
+OmniPath also provides evidence counts for each edge, such as \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. These fields summarize how many databases and publications support an interaction. When sources disagree, this can be noise, but it can also reflect regulation that depends on cell type or experimental conditions. In our graph construction we use consensus and evidence counts to reduce uncertainty, while accepting that the final network may still contain imperfect edges.
+
+In our setting, genes from the LINCS expression matrix are mapped to nodes in the OmniPath regulon graph. The resulting directed network encodes transcription factor gene relationships that are supported by published studies. When we combine this network with the gene expression profiles, the model can use both experimental measurements and prior regulatory information, which helps interpret predictions in a biological context.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/overview_of_omnipath.png}
+    \caption{Schematic overview of the OmniPath interaction tables and the graph construction used in this thesis. Each row in OmniPath describes a directed regulator to target relationship together with sign related fields (stimulation or inhibition) and consensus annotations. We filter to retain directed regulatory relationships with strong consensus and then convert the resulting edge list into a signed gene graph for downstream message passing.}
+    \label{fig:overview_of_omnipath}
+\end{figure}
+
+
+\section{Data preprocessing}
+
+This section describes how the raw LINCS Level 3 matrices and metadata are converted into the aligned tensors used by the models. The implementation follows the data loading pipeline in \texttt{src/data\_loader.py}. The goal of preprocessing is:
+\begin{enumerate}
+\item select a consistent gene set;
+\item build matched treatment and control pairs;
+\item compute treatment response targets;
+\item attach drug features that can be used as model inputs.
+\end{enumerate}
+
+\subsection{CMap LINCS L1000 preprocessing}
+
+\paragraph{Gene set selection.}
+Two gene spaces are supported. In landmark mode, the 978 landmark genes are used and the Entrez gene identifiers are kept in a fixed order defined by the landmark gene list file. In full gene mode, all 12,328 genes are loaded from the LINCS gene information table and the \texttt{pr\_gene\_id} column is used as the identifier. In both cases, a single fixed gene order is enforced across all tensors (control profiles, treatment profiles, response targets, and drug vectors). This consistent ordering makes downstream matrix operations well defined and ensures that model inputs and outputs align with the correct gene identifiers.
+
+\paragraph{Metadata filtering.}
+Preprocessing starts from the \texttt{siginfo\_beta.txt} table, which links each profile to its cell line, compound identifier, perturbation dose, perturbation time, and batch information. Only two profile types are retained: compound treatments (\texttt{trt\_cp}) and vehicle controls (\texttt{ctl\_vehicle}). To reduce heterogeneity across experiments, a single time point and a single dose setting are used. By default, profiles measured at 24 hours and treatments with dose close to 10~\textmu M are kept. This choice follows a widely used LINCS condition and improves comparability by reducing variation caused by different exposure times. In addition, only high quality treatment profiles are retained (for example, \texttt{is\_hiq = 1}). Optional filtering by cell line is supported by restricting entries in \texttt{siginfo\_beta.txt}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/l1000_filter_flow.png}
+    \caption{Effect of successive filtering steps on the number of treatment profiles retained for modelling in a single dose and single time point setting. The final step counts treatment profiles that can be paired with at least one matched vehicle control under the context matching rules.}
+    \label{fig:l1000_filter_flow}
+\end{figure}
+
+\paragraph{Control profile collection.}
+From the filtered metadata, control profiles are collected and the \texttt{distil\_ids} field is expanded so that each profile has a unique identifier. For each control profile, the associated cell line, bead batch, and detection plate are recorded. The expression vectors for these control identifiers are then loaded from the Level 3 matrix. The loader reads only the requested identifiers and only the selected gene columns, which reduces memory and keeps a consistent gene order.
+
+\paragraph{Treatment profile collection.}
+The same procedure is applied to treatment profiles. The field \texttt{distil\_ids} is expanded for each treatment record, and the corresponding cell line, compound identifier (\texttt{pert\_id}), bead batch, and detection plate are stored for each sample. The expression vectors for these treatment identifiers are then loaded from the Level 3 matrix.
+
+\paragraph{Matched pairing and target construction.}
+For each treatment profile, we sample several control profiles from the same cell line and the same experimental context. The primary rule is to match cell line, bead batch, and detection plate. If no control exists for this exact match, we use a relaxed rule that matches cell line and detection plate. If no suitable control exists, the treatment profile is removed from the dataset. For each remaining treatment profile, we sample a small pool of controls, with default size 3, and create one training example per sampled control. This design increases the number of paired examples and reduces sensitivity to noise in any single control profile. The supervised target is the treatment response vector
+\[
+y = x_{\mathrm{trt}} - x_{\mathrm{ctl}},
+\]
+where $x_{\mathrm{trt}}$ is the treatment expression vector and $x_{\mathrm{ctl}}$ is the matched control expression vector.
+This construction removes much of the baseline cell state and focuses learning on the perturbation induced change. When controls are measured in a similar experimental context, the subtraction cancels out technical shifts that affect both treatment and control (for example, plate or batch effects), making the response target more stable for regression.
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.95\linewidth]{figures/paired_construction_schematic.png}
+%     \caption{Schematic of paired sample construction. Treatment profiles are matched to vehicle controls using strict and relaxed context rules, then multiple controls are sampled to form paired training examples.}
+%     \label{fig:paired_construction_schematic}
+% \end{figure}
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/l1000_xdeg_stats.png}
+    \caption{Distribution of treatment response vectors $x_{\mathrm{deg}}=x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ computed from matched treatment and control pairs in the 978 landmark gene space. Most responses are subtle with near zero mean shifts, while a small subset of genes shows large positive or negative changes.}
+    \label{fig:l1000_xdeg_stats}
+\end{figure}
+
+\paragraph{Drug feature construction.}
+Each training example is linked to a compound identifier. A sparse target annotation vector over the selected gene set is constructed by mapping curated target gene symbols to the gene identifiers used in the expression matrix.
+\paragraph{Example filtering.}
+Only treatment examples with available drug target annotations are retained. Examples whose \texttt{pert\_id} cannot be linked to a nonempty \texttt{target} field in \texttt{compoundinfo\_beta.txt} are removed.
+
+\paragraph{Outputs.}
+After preprocessing, the dataset consists of aligned arrays for control expression, drug target vectors, and response targets. Identifiers for cell line, bead batch, detection plate, and profile ids are also retained. These identifiers are used for evaluation, grouping analysis, and sanity checks related to batch effects.
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.95\linewidth]{figures/l1000_batch_pca.png}
+%     \caption{PCA of control profiles (24\,h) in the 978 landmark gene space, coloured by cell line and technical factors. Visible structure indicates that batch and plate variables can contribute systematic variation and motivates matched pairing.}
+%     \label{fig:l1000_batch_pca}
+% \end{figure}
+
+\subsection{OmniPath graph preprocessing}
+In this thesis, the prior interaction graph is constructed by merging two OmniPath tables: the transcription factor regulon table (\texttt{omnipath\_tf\_regulons.csv}) and the interaction table (\texttt{omnipath\_interactions.csv}). This merge increases edge coverage, so more genes in the expression space have informative neighbours during message passing. Each row describes a source gene and a target gene together with sign information indicating stimulation or inhibition when available.
+
+\paragraph{Identifier alignment.}
+OmniPath tables are provided in gene symbols. These symbols are mapped to the gene identifiers used by the expression matrices (Entrez identifiers in landmark mode). Edges are retained only when both endpoints can be mapped and both genes are present in the selected gene set. This ensures that graph nodes, expression vectors, and drug target vectors refer to the same ordered gene list.
+
+\paragraph{Direction and sign.}
+The graph is represented as a directed edge list. When OmniPath provides sign annotations, each edge is assigned a sign value $w\in\{+1,-1\}$ corresponding to stimulation or inhibition. If sign information is missing for an edge, it can be excluded or treated as unknown depending on the experiment setting.
+
+\paragraph{Deduplication and outputs.}
+An interaction may appear multiple times across sources. Duplicate edges are merged so that each ordered pair $(u,v)$ appears once in the final graph. The resulting graph is stored as \texttt{edge\_index} (a $2\times E$ integer tensor) and optional edge attributes such as signed weights. This representation is used directly by the graph neural network for message passing.
+
+\paragraph{Graph size.}
+In the landmark gene setting used in this thesis, the resulting OmniPath graph contains $978$ nodes and $1{,}627$ directed edges after filtering and deduplication. The node set matches the 978 dimensional landmark expression space, so graph outputs align directly with the prediction targets. The graph is relatively sparse (average degree on the order of 1--2), which helps focus message passing on higher confidence interactions, reduces noise propagation, and keeps computation efficient.
+When the full gene space is used ($G=12{,}328$), the constructed OmniPath graph contains $12{,}328$ nodes and $26{,}166$ directed edges under the same preprocessing settings.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/omnipath_graph_978_full_nature.png}
+    \caption{Visualization of the OmniPath derived interaction graph in the 978 landmark gene setting. Node color indicates node degree.}
+    \label{fig:omnipath_graph_978_full}
+\end{figure}

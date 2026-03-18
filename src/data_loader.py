@@ -359,12 +359,9 @@ def download_omnipath_network(output_path='data/omnipath/'):
 #     return adj_matrix, node_list, gene2idx, edge_index
 
 
-
-
 def build_combined_gnn(
     tf_path="data/omnipath/omnipath_tf_regulons.csv",
     ppi_path="data/omnipath/omnipath_interactions.csv",
-   # landmark_path=None,
     target_genes=None,
     #full_gene_path="data/GSE92742_Broad_LINCS_gene_info.txt",
     #string_path = "data/string_interactions_mapped.csv",
@@ -543,6 +540,7 @@ def build_combined_gnn(
         edges_ppi_debug["src_symbol"] = edges_ppi_debug["src_entrez"].map(inv_symbol_to_entrez).fillna(edges_ppi_debug["src_entrez"])
         edges_ppi_debug["dst_symbol"] = edges_ppi_debug["dst_entrez"].map(inv_symbol_to_entrez).fillna(edges_ppi_debug["dst_entrez"])
         print(f"PPI 边数: {len(edges_ppi_dir) + len(edges_ppi_undir)}")
+
     directed_map = {}
     for s, t, w in edges_directed:
         key = (str(s), str(t))
@@ -605,6 +603,141 @@ def build_combined_gnn(
     np.fill_diagonal(adj_matrix, 1.0)
     
     print(f"Combined Graph 构建完成: {N} 节点, {count} 边 (含权重)")
+    return adj_matrix, node_list, gene2idx, np.array(edge_index)
+
+
+def combine_full_grapg(
+    tf_path="data/omnipath/omnipath_tf_regulons.csv",
+    ppi_path="data/omnipath/omnipath_interactions.csv",
+    target_genes=None,
+    directed=True,
+    symbol_to_entrez=None,
+    default_weight=1.0,
+):
+    print(">>> 正在构建 Full Graph (TF + PPI, no sign filtering) ...")
+
+    def _norm_symbol(s):
+        return str(s).strip().upper()
+
+    def _norm_entrez(x):
+        s = str(x).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        return s
+
+    if not symbol_to_entrez or symbol_to_entrez is None:
+        raise RuntimeError("未能构建 symbol_to_entrez 映射：请检查 full_gene_path / landmark_path 文件。")
+    if target_genes is None or len(target_genes) == 0:
+        raise Exception("target_genes 不能为空")
+
+    target_entrez = [_norm_entrez(x) for x in target_genes]
+    target_entrez = [x for x in target_entrez if x]
+    target_entrez = list(dict.fromkeys(target_entrez))
+    target_genes_set = set(target_entrez)
+
+    def _pick_sign_fallback(s, t):
+        import hashlib
+
+        h = hashlib.md5(f"{s}|{t}".encode("utf-8")).digest()
+        return 1.0 if (int.from_bytes(h[:2], "big") % 2 == 0) else -1.0
+
+    def _extract_edges(df):
+        if df is None or df.shape[0] == 0:
+            return []
+        if "source_genesymbol" not in df.columns or "target_genesymbol" not in df.columns:
+            return []
+
+        src_sym = df["source_genesymbol"].astype(str).map(_norm_symbol)
+        tgt_sym = df["target_genesymbol"].astype(str).map(_norm_symbol)
+        src_entrez = src_sym.map(symbol_to_entrez)
+        tgt_entrez = tgt_sym.map(symbol_to_entrez)
+        valid = src_entrez.notna() & tgt_entrez.notna()
+        if not bool(valid.any()):
+            return []
+
+        is_directed_mask = df["is_directed"].fillna(False).astype(bool) if "is_directed" in df.columns else None
+        stim = df["is_stimulation"].fillna(False).astype(bool) if "is_stimulation" in df.columns else None
+        inhib = df["is_inhibition"].fillna(False).astype(bool) if "is_inhibition" in df.columns else None
+        cs = df["consensus_stimulation"].fillna(False).astype(bool) if "consensus_stimulation" in df.columns else None
+        ci = df["consensus_inhibition"].fillna(False).astype(bool) if "consensus_inhibition" in df.columns else None
+
+        edges = []
+        for idx in np.where(valid.values)[0]:
+            s = str(src_entrez.iloc[idx])
+            t = str(tgt_entrez.iloc[idx])
+            if s not in target_genes_set or t not in target_genes_set:
+                continue
+
+            sign = None
+            if cs is not None and ci is not None:
+                cs_i = bool(cs.iloc[idx])
+                ci_i = bool(ci.iloc[idx])
+                if cs_i and not ci_i:
+                    sign = 1.0
+                elif ci_i and not cs_i:
+                    sign = -1.0
+                elif cs_i and ci_i:
+                    sign = _pick_sign_fallback(s, t)
+            if sign is None and stim is not None and inhib is not None:
+                stim_i = bool(stim.iloc[idx])
+                inhib_i = bool(inhib.iloc[idx])
+                if stim_i and not inhib_i:
+                    sign = 1.0
+                elif inhib_i and not stim_i:
+                    sign = -1.0
+                elif stim_i and inhib_i:
+                    sign = _pick_sign_fallback(s, t)
+            if sign is None:
+                sign = 1.0
+            w = float(default_weight) * float(sign)
+
+            is_dir = bool(is_directed_mask.iloc[idx]) if is_directed_mask is not None else True
+            if is_dir:
+                edges.append((s, t, w))
+            else:
+                if bool(directed):
+                    edges.append((s, t, abs(w)))
+                    edges.append((t, s, abs(w)))
+                else:
+                    u, v = (s, t) if s <= t else (t, s)
+                    edges.append((u, v, abs(w)))
+        return edges
+
+    edges = []
+    if tf_path is not None and os.path.exists(tf_path):
+        df_tf = pd.read_csv(tf_path)
+        edges.extend(_extract_edges(df_tf))
+    if ppi_path is not None and os.path.exists(ppi_path):
+        df_ppi = pd.read_csv(ppi_path)
+        edges.extend(_extract_edges(df_ppi))
+
+    edge_map = {}
+    for s, t, w in edges:
+        key = (str(s), str(t))
+        prev = edge_map.get(key)
+        if prev is None:
+            edge_map[key] = w
+        else:
+            edge_map[key] = w if abs(w) > abs(prev) else prev
+    edges = [(s, t, w) for (s, t), w in edge_map.items()]
+
+    node_list = target_entrez
+    gene2idx = {g: i for i, g in enumerate(node_list)}
+    N = len(node_list)
+    adj_matrix = np.zeros((N, N), dtype=np.float32)
+    edge_index = [[], []]
+    count = 0
+    for u, v, w in edges:
+        if u in gene2idx and v in gene2idx:
+            i, j = gene2idx[u], gene2idx[v]
+            if abs(w) > abs(adj_matrix[j, i]):
+                adj_matrix[j, i] = w
+            edge_index[0].append(i)
+            edge_index[1].append(j)
+            count += 1
+
+    np.fill_diagonal(adj_matrix, 1.0)
+    print(f"Full Graph 构建完成: {N} 节点, {count} 边 (含权重)")
     return adj_matrix, node_list, gene2idx, np.array(edge_index)
 
 

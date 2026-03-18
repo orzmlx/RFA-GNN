@@ -80,8 +80,8 @@ liuthesis_my/thesis.pdf
 # DeepCOP bundled data
 /DeepCOP/Data/
 
-# Third-party large subprojects (optional to exclude from main repo)
-# /DeepCOP/Data/
+# Third-party large subprojects (exclude from main repo)
+/DeepCOP/
 
 # Upstream thesis template repo (use liuthesis_my instead)
 /liuthesis/

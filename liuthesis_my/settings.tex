@@ -3,6 +3,44 @@
 \usepackage{geometry}
 \geometry{a4paper, left=3cm, right=2.5cm, top=3cm, bottom=3cm}
 \usepackage{graphicx}
+\usepackage{float}
 \usepackage{amsmath, amssymb}
+\usepackage{tikz}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+
+% ------------------------------------------------------------
+% Chapter style (Memoir): VZ43
+% Ensures chapter pages do not show the "Chapter N" label.
+% ------------------------------------------------------------
+\usepackage{calc,color}
+\newif\ifNoChapNumber
+\newcommand\Vlines{%
+\def\VL{\rule[-2cm]{1pt}{5cm}\hspace{1mm}\relax}
+\VL\VL\VL\VL\VL\VL\VL}
+\makeatletter
+\setlength\midchapskip{0pt}
+\makechapterstyle{VZ43}{%
+\renewcommand\chapternamenum{}
+\renewcommand\printchaptername{}
+\renewcommand\printchapternum{}
+
+\renewcommand\chapnumfont{\Huge\bfseries\centering}
+\renewcommand\chaptitlefont{\Huge\bfseries\raggedright}
+\renewcommand\printchaptertitle[1]{%
+\Vlines\hspace*{-2em}%
+\begin{tabular}{@{}p{1cm} p{\textwidth-3cm}}%
+\ifNoChapNumber\relax\else%
+\colorbox{black}{\color{white}%
+\makebox[.8cm]{\chapnumfont\strut \thechapter}}
+\fi
+& \chaptitlefont ##1
+\end{tabular}
+\NoChapNumberfalse
+}
+\renewcommand\printchapternonum{\NoChapNumbertrue}
+}
+\makeatother
+
+% Ensure our locally-defined chapterstyle is actually applied
+\chapterstyle{VZ43}
