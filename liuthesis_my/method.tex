@@ -1,53 +1,51 @@
 \chapter{Method}
 
-This chapter describes the modelling approach used in this thesis. It starts from a simple neural network baseline and then introduces the proposed graph attention network that uses prior gene interactions.
-
-\section{Problem description}
-Let $G$ denote the number of genes in the selected gene set. For each perturbation sample, let $x_{\mathrm{ctl}} \in \mathbb{R}^{G}$ be the control profile and $x_{\mathrm{trt}} \in \mathbb{R}^{G}$ be the treatment profile. The supervised target is the response vector
+This thesis studies a prediction problem for drug perturbation experiments. Let $G$ denote the number of genes in the selected gene set. For each sample, $x_{\mathrm{ctl}} \in \mathbb{R}^{G}$ denotes the control expression profile and $x_{\mathrm{trt}} \in \mathbb{R}^{G}$ denotes the corresponding treated profile. The supervised target is the response vector
 \begin{equation}
 y = x_{\mathrm{trt}} - x_{\mathrm{ctl}} \in \mathbb{R}^{G}.
 \end{equation}
-This formulation focuses on the change after treatment, reduces shared measurement noise between matched control and treatment, and makes responses more comparable across experiments.
+The response target focuses on the change after treatment. It reduces shared measurement noise when the control and treatment are matched. It also makes targets more comparable across experiments. To make sure that the base model and GNN model are comparable. all models in this thesis take the same type of inputs. The inputs include the control profile $x_{\mathrm{ctl}}$ and drug related features such as target annotations. The model output is a predicted response vector $\hat{y} \in \mathbb{R}^{G}$. The learning goal is to make $\hat{y}$ close to $y$ on new samples.
+
+\section{DeepCOP style baseline}
+\noindent DeepCOP is a deep learning model that uses a multilayer perceptron (MLP) to link small molecule features to gene regulation endpoints~\cite{woo2020deepcop}. The core idea is simple. Different input features are concatenated into one vector. The vector is then passed through several fully connected layers with nonlinear activations. Dropout is used to reduce overfitting. In this thesis, the baseline model follows the same MLP idea, but uses drug perturbation inputs that are aligned to the L1000 setting.
+
+\noindent Let $z$ be the concatenated input vector that contains the control profile, drug related features, and a cell identity embedding. The baseline model predicts the response by
+\begin{equation}
+\hat{y}=f_{\mathrm{MLP}}(z),
+\end{equation}
+where $f_{\mathrm{MLP}}(\cdot)$ is a feed forward network. This baseline does not use the gene interaction graph. It provides a reference point before introducing graph based message passing.
 
 \section{Graph neural networks}
-A standard neural network typically works on individual data points. It takes a fixed size input vector, which represents features of a single sample, and produces an output. This design works well for many tasks, though it treats each sample as independent. However, in many real world scenarios, data points are connected, both the samples themselves and the links between them carry important information.
-
-A graph neural network (GNN) is designed specifically for such relational data. It models the data as a graph, where nodes represent entities and edges represent the connections between them. At each layer, a node updates its representation by aggregating information from its neighboring nodes. This allows the model to learn from both the features of each node and the structure of the graph itself.
-
-Compared to a standard neural network, this approach offers three practical advantages. First, it uses relational information directly. In a standard network, using graph structure requires manually computing extra features, such as node degree, the number of shared neighbors, or shortest path distances, and adding them to the input. A GNN avoids this preprocessing step. It reads the graph connections directly through its aggregation mechanism and learns relational patterns from start to finish.
-
-Second, the model architecture does not depend on the number of nodes. A standard neural network is designed for a fixed input dimension, so changing the number of nodes often requires redesigning the model. by contrast, A GNN learns a local update rule that applies to any node regardless of the graph's total size. This means the same trained model can be applied to graphs with different numbers of nodes without any architectural changes. 
-
-Third, it is parameter efficient due to shared rules. A standard network often learns separate parameters for each input position. A GNN uses a single shared update function for all nodes. This parameter sharing keeps the total number of trainable parameters relatively low, which often leads to more stable training and better performance when the amount of available data is limited.
+\noindent A fully connected neural network typically treats each sample as independent. In this thesis, genes are connected by known biological interactions, and these links carry useful information. A graph neural network (GNN) models the data as a graph, where nodes represent genes and edges represent interactions. At each layer, a node aggregates information from its neighbours and updates its representation. The same update rule is shared across all nodes, which keeps the number of trainable parameters moderate and supports graphs of different sizes.
 
 
-The model works in layers. In each layer, a node first collects messages from its neighbours and then updates its own state.
+\noindent The model works in layers. In each layer, a node first collects messages from its neighbours and then updates its own state.
 The basic rule is
 \begin{equation}
 h_{v}^{(\ell+1)} = \sigma\!\left(\sum_{u \in \mathcal{N}(v)} m_{u\rightarrow v}^{(\ell)}\right),
 \end{equation}
-where $h_{v}^{(\ell)}$ is the state of node $v$ at round $\ell$, and $\mathcal{N}(v)$ is the neighbour set of $v$. In many models, each message $m_{u\rightarrow v}^{(\ell)}$ is computed from the sender state $h_{u}^{(\ell)}$ and the edge between $u$ and $v$. In simple words, each neighbour sends a short message based on its current state; the node adds all incoming messages and then applies a small transform $\sigma(\cdot)$ to get its new state.
+where $h_{v}^{(\ell)}$ is the state of node $v$ at round $\ell$, and $\mathcal{N}(v)$ is the neighbour set of $v$. In many models, each message $m_{u\rightarrow v}^{(\ell)}$ is computed from the sender state $h_{u}^{(\ell)}$ and the edge between $u$ and $v$. In simple words, each neighbour sends a short message based on its current state. The node adds the incoming messages and applies $\sigma(\cdot)$ to get its new state.
 
-The first layer takes the initial node features $h_{v}^{(0)}$ and produces updated features $h_{v}^{(1)}$ that already include information from one hop neighbours. The second layer takes $h_{v}^{(1)}$ and produces $h_{v}^{(2)}$, which now includes information from two hop neighbours, and so on. One layer therefore means a node uses one hop neighbours; two layers mean it can also use two hop neighbours; more layers give a wider view of the graph.
+\noindent The first layer takes the initial node features $h_{v}^{(0)}$ and produces updated features $h_{v}^{(1)}$ that already include information from one hop neighbours. The second layer takes $h_{v}^{(1)}$ and produces $h_{v}^{(2)}$, which now includes information from two hop neighbours, and so on. One layer therefore means a node uses one hop neighbours; two layers mean it can also use two hop neighbours; more layers give a wider view of the graph.
 
-After a small number of layers, the final node states $h_{v}^{(L)}$ are used as learned representations. For node level tasks, a simple output function is applied to each node state to produce one prediction per node. For graph level tasks, the node states are first pooled into a single vector, and then an output function produces one prediction for the whole graph.
+\noindent After a small number of layers, the final node states $h_{v}^{(L)}$ are used as learned representations. For node level tasks, a simple output function is applied to each node state to produce one prediction per node. For graph level tasks, the node states are first pooled into a single vector, and then an output function produces one prediction for the whole graph.
 
 \begin{figure}[H]
     \centering
     \begin{tikzpicture}[>=latex, line width=0.9pt]
-        % Left: standard neural network
-        \node[align=center] at (-3.8,3.0) {Standard neural network};
+        % Left part
+        \node[align=center] at (-3.8,3.0) {Fully connected neural network};
 
-        % Small input nodes (vector view) on the left half
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in1) at (-7.2,1.4) {};
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in2) at (-7.2,1.9) {};
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in3) at (-7.2,2.4) {};
+        % Small input nodes (vector view) on the left half (vertically aligned with GNN nodes)
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in1) at (-7.2,0.7) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in2) at (-7.2,1.2) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (in3) at (-7.2,1.7) {};
 
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid1) at (-6.2,1.4) {};
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid2) at (-6.2,1.9) {};
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid3) at (-6.2,2.4) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid1) at (-6.2,0.7) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid2) at (-6.2,1.2) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (hid3) at (-6.2,1.7) {};
 
-        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (outnode) at (-5.2,1.9) {};
+        \node[draw, circle, fill=blue!8, minimum size=0.45cm] (outnode) at (-5.2,1.2) {};
 
         % Fully connected edges
         \foreach \a in {1,2,3} {
@@ -72,7 +70,7 @@ After a small number of layers, the final node states $h_{v}^{(L)}$ are used as 
         % Middle separator at x = 0
         \draw[dashed, gray] (-1,-1) -- (-1,3.6);
 
-        % Right: graph neural network
+        % Right part
         \node[align=center] at (3.4,3.0) {Graph neural network};
 
         % Small input graph on the right half (well to the left of the GNN blocks)
@@ -89,32 +87,38 @@ After a small number of layers, the final node states $h_{v}^{(L)}$ are used as 
         \node[align=center] at (0.6,-0.4) {Input graph};
 
         % Message-passing layers and output (vertical stack)
-        \node[draw, rounded corners, fill=orange!15, minimum width=3.2cm, minimum height=0.9cm] (gnn1) at (3.6,2.1) {GNN layer 1};
-        \node[draw, rounded corners, fill=orange!25, minimum width=3.2cm, minimum height=0.9cm] (gnn2) at (3.6,1.0) {GNN layer 2};
-        \node[draw, rounded corners, fill=red!12, minimum width=3.2cm, minimum height=0.9cm] (gnnout) at (3.6,-0.1) {Node outputs $h^{(L)}$};
+        \node[draw, rounded corners, fill=orange!15, minimum width=2.8cm, minimum height=0.9cm] (gnn1) at (4.3,2.2) {GNN layer 1};
+        \node[draw, rounded corners, fill=orange!25, minimum width=2.8cm, minimum height=0.9cm] (gnn2) at (4.3,1.2) {GNN layer 2};
+        \node[draw, rounded corners, fill=red!12, minimum width=2.8cm, minimum height=0.9cm] (gnnout) at (4.3,0.2) {Node outputs $h^{(L)}$};
 
-        \draw[->, thick] (2.0,1.2) -- (gnn1);
+        % \draw[->, thick] (2.0,1.2) -- (gnn1);
         \draw[->] (gnn1) -- (gnn2);
         \draw[->] (gnn2) -- (gnnout);
     \end{tikzpicture}
-    \caption{Comparison between a standard neural network and a graph neural network. Left: a standard network takes a fixed length input vector and processes it through dense layers. Right: a GNN takes a graph as input and uses message passing layers to update node representations before prediction.}
+    \caption{Comparison between a fully connected neural network and a graph neural network. A fully connected network takes a fixed length input vector and processes it through dense layers. A GNN takes a graph as input and uses message passing layers to update node representations before prediction.}
     \label{fig:nn_gnn_comparison}
 \end{figure}
 
 \subsection{Graph Convolution Network (GCN)}
 GCN is a simple and widely used type of GNN.
-A single GCN layer can be described in two steps.
-First, each node computes an average of its own features and the features of its neighbours, using a suitable normalization.
-Second, this averaged vector is multiplied by a weight matrix and passed through a non-linear function.
+A single GCN layer can be described in two stages.
+In the aggregation stage, each node computes an average of its own features and the features of its neighbours, using a suitable normalization.
+In the update stage, this averaged vector is multiplied by a weight matrix and passed through a nonlinear function.
 In this way, connected nodes can directly influence each other in every layer.
 
-In matrix form, let $A$ be the adjacency matrix that encodes which nodes are connected, $I$ be the identity matrix that adds self connections, $\tilde{A}=A+I$, and $\tilde{D}$ be the degree matrix of $\tilde{A}$. A standard GCN layer is
+\noindent In matrix form, let $A$ be the adjacency matrix that encodes which nodes are connected, $I$ be the identity matrix that adds self connections, $\tilde{A}=A+I$, and $\tilde{D}$ be the degree matrix of $\tilde{A}$. A standard GCN layer is
 \begin{equation}
 H^{(\ell+1)} = \sigma\!\left(\tilde{D}^{-1/2} \tilde{A}\, \tilde{D}^{-1/2} H^{(\ell)} W^{(\ell)}\right).
 \end{equation}
 Here $H^{(\ell)}$ stores all node features at round $\ell$, and $W^{(\ell)}$ is a weight matrix learned during training.
 
-A simple example with two GCN layers is
+\noindent At the level of individual nodes, this update can be understood as follows.
+The normalized matrix $\hat{A}=\tilde{D}^{-1/2} \tilde{A}\, \tilde{D}^{-1/2}$ is used to take a weighted average of the features of each node and its neighbours.
+The same linear transformation $W^{(\ell)}$ and nonlinearity $\sigma$ are then applied to this averaged vector at every node.
+In this way a GCN layer behaves like a small convolution filter that slides over the graph. For each node it only looks at the local neighbourhood, and it reuses the same parameters everywhere.
+Because the same weights are shared across all nodes, the number of trainable parameters does not depend on how many nodes are in the graph, and the update does not depend on any particular ordering of the nodes.
+
+\noindent A simple example with two GCN layers is:
 \begin{equation}
 H^{(1)} = \mathrm{ReLU}(\hat{A}H^{(0)}W^{(0)}), \qquad
 H^{(2)} = \hat{A}H^{(1)}W^{(1)},
@@ -122,7 +126,7 @@ H^{(2)} = \hat{A}H^{(1)}W^{(1)},
 where $\hat{A}=\tilde{D}^{-1/2} \tilde{A}\, \tilde{D}^{-1/2}$.
 The first layer takes the initial node features $H^{(0)}$ and produces $H^{(1)}$, which already mixes information from one hop neighbours.
 The second layer takes $H^{(1)}$ and produces $H^{(2)}$, which now also reflects information from two hop neighbours.
-These final features $H^{(2)}$ are then used to make predictions. Figure~\ref{fig:gnn_practical_example} shows a simple two-layer GCN flow from graph input to output.
+These final features $H^{(2)}$ are then used to make predictions. Figure~\ref{fig:gnn_practical_example} shows a simple GCN flow from graph input to output.
 
 \begin{figure}[H]
     \centering
@@ -138,96 +142,171 @@ These final features $H^{(2)}$ are then used to make predictions. Figure~\ref{fi
         \draw[->] (g4) -- (g2);
         \draw[->] (g1) -- (g4);
 
-        \node at (1.3,-0.5) {Toy graph};
-
         % Middle-right: model pipeline
-        \draw[->, thick] (3.2,1.2) -- (4.5,1.2);
 
-        \node[draw, rounded corners, fill=green!12, minimum width=2.7cm, minimum height=0.9cm] (in) at (6.7,1.9) {Input $H^{(0)}$};
-        \node[draw, rounded corners, fill=orange!15, minimum width=2.7cm, minimum height=0.9cm] (l1) at (10.0,1.9) {GCN Layer 1};
-        \node[draw, rounded corners, fill=orange!25, minimum width=2.7cm, minimum height=0.9cm] (l2) at (13.3,1.9) {GCN Layer 2};
-        \node[draw, rounded corners, fill=red!12, minimum width=2.8cm, minimum height=0.9cm] (out) at (16.6,1.9) {Output $\hat{y}$};
+        \node[draw, rounded corners, fill=green!12, minimum width=2.7cm, minimum height=0.9cm] (in) at (4.7,1.9) {Input $H^{(0)}$};
+        \node[draw, rounded corners, fill=orange!15, minimum width=2.7cm, minimum height=0.9cm] (l1) at (8.0,1.9) {GCN Layer 1};
+        \node[draw, rounded corners, fill=orange!25, minimum width=2.7cm, minimum height=0.9cm] (l2) at (11.3,1.9) {GCN Layer 2};
+        \node[draw, rounded corners, fill=red!12, minimum width=2.8cm, minimum height=0.9cm] (out) at (14.6,1.9) {Output $\hat{y}$};
 
         \draw[->] (in) -- (l1);
         \draw[->] (l1) -- (l2);
         \draw[->] (l2) -- (out);
 
-        \node[align=center] at (6.7,0.55) {node features};
-        \node[align=center] at (10.0,0.55) {1-hop message\\aggregation};
-        \node[align=center] at (13.3,0.55) {2-hop contextual\\propagation};
-        \node[align=center] at (16.6,0.55) {node-level output};
+        \node[align=center] at (4.7,0.55) {node features};
+        \node[align=center] at (8.0,0.55) {one hop message\\aggregation};
+        \node[align=center] at (11.3,0.55) {two hop contextual\\propagation};
+        \node[align=center] at (14.6,0.55) {node level output};
     \end{tikzpicture}
-    \caption{A practical GNN example: a two-layer GCN. Left: a toy directed graph. Right: computation flow from node features to output features.}
+    \caption{A practical GNN example with two GCN layers. The left panel shows a small directed graph. The right panel shows the computation flow from node features to output features.}
     \label{fig:gnn_practical_example}
 \end{figure}
 \subsection{Graph Attention Network (GAT)}
-GAT extends this idea by learning that different neighbours may have different importance.
-In practice, some neighbours provide stronger signals than others, and GAT learns this difference automatically.
-
-For node $v$, the attention weight for neighbour $u$ is
+GAT is a graph neural network that assigns different importance to different neighbours when updating a node.
+For a target node $v$, each neighbour $u\in\mathcal{N}(v)$ receives an attention score $e_{u\rightarrow v}$ based on the current node states. A common choice is
+\begin{equation}
+e_{u\rightarrow v}=\mathrm{LeakyReLU}\!\left(a^{\top}\left[W h_{u}^{(\ell)} \,\Vert\, W h_{v}^{(\ell)}\right]\right),
+\end{equation}
+where $W$ and $a$ are learned parameters, and $\Vert$ denotes vector concatenation.
+The scores are converted into attention weights by a softmax over the neighbours of $v$,
 \begin{equation}
 \alpha_{u\rightarrow v} = \mathrm{softmax}_{u}\!\left(e_{u\rightarrow v}\right),
 \end{equation}
-where $e_{u\rightarrow v}$ is a learned score. The update is
+so that $0 \leq \alpha_{u\rightarrow v} \leq 1$ and the weights for all neighbours of $v$ sum to one.
+The new state of node $v$ at layer $\ell+1$ is then
 \begin{equation}
 h_{v}^{(\ell+1)} = \sigma\!\left(\sum_{u \in \mathcal{N}(v)} \alpha_{u\rightarrow v}\, W^{(\ell)} h_{u}^{(\ell)}\right).
 \end{equation}
-This means useful neighbours get larger weights, and less useful neighbours get smaller weights.
-Compared with a standard neural network, this gives a direct way to focus on useful local links.
+Here $W^{(\ell)}$ is a learned weight matrix and $\sigma(\cdot)$ is a non linearity.
+Neighbours with larger attention weights contribute more strongly to the update.
+
+\noindent Compared with a GCN layer, the aggregation step in GAT replaces a fixed, normalized average over neighbours by a weighted average that depends on the data.
+If all attention weights $\alpha_{u\rightarrow v}$ were equal for a given node, the update would reduce to a simple mean over its neighbours, similar to the GCN case.
+The same parameters $W^{(\ell)}$ and the same attention mechanism are applied at every node, so the update does not depend on the order of the nodes and can be used on graphs of different sizes.
+
+\noindent In practice, GAT can use several attention heads in parallel. Each head $k$ produces its own weights $\alpha_{u\rightarrow v}^{k}$ and its own intermediate representation $h_{v}^{(\ell+1),k}$. The head outputs are then combined. For intermediate layers, concatenation is often used,
+\begin{equation}
+h_{v}^{(\ell+1)}=\big\Vert_{k=1}^{K} h_{v}^{(\ell+1),k}.
+\end{equation}
+For the last layer, averaging is often used,
+\begin{equation}
+h_{v}^{(\ell+1)}=\frac{1}{K}\sum_{k=1}^{K} h_{v}^{(\ell+1),k}.
+\end{equation}
+
+\noindent Stacking multiple GAT layers lets information travel across several hops, just as the GCN example. This is useful when the input graph is large and unreliable, as is often the case for biological interaction networks.
 
 
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.75\linewidth]{figures/gnn_message_passing.png}
-    \caption{Message passing in a GNN. The representation of a node $v$ is updated by aggregating information from its neighbours.}
-    \label{fig:gnn_message_passing}
-\end{figure}
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.75\linewidth]{figures/gnn_message_passing.png}
+%     \caption{Message passing in a GNN. The representation of a node $v$ is updated by aggregating information from its neighbours.}
+%     \label{fig:gnn_message_passing}
+% \end{figure}
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.75\linewidth]{figures/gat_attention.png}
-    \caption{GAT update idea. Neighbours send messages to the same target node $v$, and the model learns different weights $\alpha_{u\rightarrow v}$ for different neighbours.}
-    \label{fig:gat_attention}
-\end{figure}
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.75\linewidth]{figures/gat_attention.png}
+%     \caption{GAT update idea. Neighbours send messages to the same target node $v$, and the model learns different weights $\alpha_{u\rightarrow v}$ for different neighbours.}
+%     \label{fig:gat_attention}
+% \end{figure}
 
 \section{Baseline model}
-As a non-graph baseline, we use a standard neural network that predicts $\hat{y}$ from the control profile and drug features. This baseline shows how much can be learned without any explicit gene interaction structure.
+As a baseline, a DeepCOP style fully connected network is used~\cite{woo2020deepcop}. It does not use a gene interaction graph. The model learns a direct mapping from input features to the response vector. This baseline is included to show what can be achieved without any network structure.
 
 \subsection{Inputs}
-The baseline model uses:
-\begin{enumerate}
-\item the control expression profile $x_{\mathrm{ctl}}$;
-\item drug targets encoded as a sparse vector aligned to the gene list;
-\item a molecular fingerprint as a fixed-length drug descriptor.
-\end{enumerate}
+The input consists of three parts. The control expression vector $x_{\mathrm{ctl}}\in\mathbb{R}^{G}$ describes the baseline state of the cell. The drug target vector $t\in\mathbb{R}^{G}$ is sparse and aligned to the same gene order as $x_{\mathrm{ctl}}$. It indicates which genes are known targets of the compound. The cell identity label is encoded as a learnable embedding vector. All inputs are concatenated into one feature vector for the multilayer perceptron.
 
-\subsection{Architecture and output}
-The inputs are concatenated and passed through several fully connected layers to produce the predicted response vector $\hat{y} \in \mathbb{R}^{G}$.
+\subsection{Network architecture}
+The concatenated input is normalized with batch normalization. It is then passed through two fully connected blocks. Each block uses a linear layer, batch normalization, ReLU activation, and dropout. This matches the two hidden layer MLP structure used in DeepCOP~\cite{woo2020deepcop}. A final linear layer maps the hidden representation to an output vector of length $G$.
+
+\subsection{Output}
+The baseline predicts a response vector $\hat{y}\in\mathbb{R}^{G}$. Each entry of $\hat{y}$ corresponds to one gene in the selected gene set, and it represents the predicted change in expression after treatment relative to the matched control.
 
 \section{Proposed model}
+The proposed model is a graph attention network that predicts the gene expression response for each gene node. It uses a biological interaction network as the graph structure and conditions the prediction on the control profile, drug targets, and cell identity. GAT is used instead of GCN because it can learn different weights for different neighbours. This is useful when prior interaction networks are incomplete or noisy. Another reason is Interactions in databases such as OmniPath are collected from different resources and may not be relevant in every cell context, attention allows the model to reduce the influence of such edges and to emphasize more relevant neighbours. attention values can also be analysed after training to identify edges that contribute most to the predictions.
 \subsection{Graph construction}
-Prior biological knowledge is represented as a directed graph $\mathcal{G}=(\mathcal{V},\mathcal{E})$ built from OmniPath. Nodes correspond to genes in the selected gene set. Edges represent known regulator-to-target or interaction relationships. When available, interaction type is encoded as a signed edge weight $w_{uv}\in\{+1,-1\}$.
+Prior biological knowledge is represented as a directed graph $\mathcal{G}=(\mathcal{V},\mathcal{E})$ built from OmniPath. Nodes correspond to genes in the selected gene set. Edges represent known interactions between genes, for example where one gene can regulate another. If possible, interaction type is encoded as a signed edge weight $w_{uv}\in\{+1,-1\}$. The final graph is stored as an adjacency matrix $A\in\mathbb{R}^{G\times G}$, where $A_{uv}$ is nonzero when there is an edge from $u$ to $v$. In the sparse implementation, self loop edges are added for all nodes with weight 1 to preserve the node's own information in each layer.
 
 \subsection{Model inputs and node features}
-The proposed model uses one node per gene. Node features are initialized from the control profile:
+The proposed model uses one node per gene. Node features are initialized from the control profile. The initial feature matrix is
 \begin{equation}
 H^{(0)} = \phi(x_{\mathrm{ctl}}) \in \mathbb{R}^{G \times F},
 \end{equation}
-where $\phi(\cdot)$ maps each scalar expression value to an $F$-dimensional feature vector. Drug targets are represented as a sparse vector aligned to the same gene order and injected as an additional input signal. Drug fingerprints provide a dense drug representation that conditions the model on chemical structure.
+where $\phi(\cdot)$ maps each gene's expression value to an $F$ dimensional feature vector. Drug targets are represented as a sparse vector aligned to the same gene order and injected as an additional input signal. The model is also conditioned on the cell identity.
 
 \subsection{GAT backbone}
-The model uses $L$ graph attention layers to propagate information over $\mathcal{G}$. Attention weights determine how strongly each neighbour contributes to the update, following the mechanism described in the previous section. Signed edge weights $w_{uv}$ are used when available to encode activating or inhibiting relations.
+The model uses $L$ graph attention layers to propagate messages over $\mathcal{G}$. The number of layers $L$ is a hyperparameter and can be configured in experiments. Attention weights determine how strongly each neighbour contributes to the update, following the mechanism described in the previous section. Signed edge weights $w_{uv}$ are used when available to encode activating or inhibiting relations. The edge weight modulates the message passed along the edge, so inhibitory links can reduce or flip the contribution from a neighbour.
+Each GAT layer is implemented as a block with residual connections, dropout, and layer normalization. The attention output is first passed through dropout and then added back to the layer input, followed by layer normalization. A position wise feed forward network is then applied to each node, followed by dropout, a second residual connection, and a second layer normalization. This design adds extra nonlinearity and mixes feature dimensions within each node. It increases model capacity without changing the graph structure and helps stabilize training.
 
 \subsection{Prediction head}
-After $L$ layers, a per-node readout produces the predicted response vector $\hat{y}\in\mathbb{R}^{G}$.
+After $L$ layers, each gene has a learned representation $h_{v}^{(L)}$. A single linear readout is applied to each node to produce one scalar prediction,
+\begin{equation}
+\hat{y}_{v} = g\!\left(h_{v}^{(L)}\right),
+\end{equation}
+and the full response vector is $\hat{y}=[\hat{y}_{1},\ldots,\hat{y}_{G}] \in \mathbb{R}^{G}$.
+This design matches the task setting because the target is defined at the gene level. It also avoids pooling all node features into a single graph level vector, which would lose gene specific information. A deeper prediction head would add many parameters, as the output must be produced for every node. Using a single output layer keeps is enough to keep the model simple while predicting per gene.
 
 \section{Training}
 \subsection{Loss function}
-Training minimizes a regression loss between $y$ and $\hat{y}$. A gene mask is applied when only a subset of genes should contribute to the loss. The objective combines a mean squared error term with a correlation term based on the Pearson correlation coefficient at the sample level.
+Training minimizes a regression loss between $y$ and $\hat{y}$. A binary gene mask $m\in\{0,1\}^{G}$ is used so that only selected genes contribute to the objective. The masked mean squared error is
+\begin{equation}
+\mathcal{L}_{\mathrm{mse}}=\frac{1}{B\sum_{g} m_{g}}\sum_{i=1}^{B}\sum_{g=1}^{G} m_{g}\left(y_{ig}-\hat{y}_{ig}\right)^{2},
+\end{equation}
+where $B$ is the batch size.
+The objective also includes a sample wise Pearson correlation coefficient (PCC) term. For each sample $i$, PCC is computed on the target gene set and averaged over the batch. This term focuses on the overall response pattern across genes and is less sensitive to differences in scale. The correlation loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{pcc}} = 1-\frac{1}{B}\sum_{i=1}^{B}\mathrm{corr}\!\left(y_{i},\hat{y}_{i}\right).
+\end{equation}
+Here $\mathrm{corr}(y_{i},\hat{y}_{i})$ is the Pearson correlation coefficient,
+\begin{equation}
+\mathrm{corr}(y_{i},\hat{y}_{i})=\frac{\sum_{g\in\mathcal{G}_{\mathrm{tgt}}}\left(y_{ig}-\bar{y}_{i}\right)\left(\hat{y}_{ig}-\bar{\hat{y}}_{i}\right)}{\sqrt{\sum_{g\in\mathcal{G}_{\mathrm{tgt}}}\left(y_{ig}-\bar{y}_{i}\right)^{2}}\sqrt{\sum_{g\in\mathcal{G}_{\mathrm{tgt}}}\left(\hat{y}_{ig}-\bar{\hat{y}}_{i}\right)^{2}}},
+\end{equation}
+where $\bar{y}_{i}$ and $\bar{\hat{y}}_{i}$ are means over genes in $\mathcal{G}_{\mathrm{tgt}}$.
+The full prediction loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{full}}=\mathcal{L}_{\mathrm{mse}}+\lambda_{\mathrm{pcc}}\mathcal{L}_{\mathrm{pcc}},
+\end{equation}
+This weight balances the two goals. The MSE term focuses on absolute prediction error for each gene. A larger $\lambda_{\mathrm{pcc}}$ makes the PCC term more important during training.
 
 \subsection{Counterfactual drug loss}
-To check that the model uses drug information, counterfactual inputs are created by modifying drug features while keeping the same control profile and cell context. Two modes are used: \emph{zero} sets drug features to zero, and \emph{shuffle} assigns drug features from another sample in the same batch. A margin-based hinge penalty is applied when the counterfactual loss is too close to the factual loss. This encourages factual predictions to be better than counterfactual predictions by a fixed margin.
+To encourage the model to use drug target information, each training step uses two forward passes. The first pass uses the true target vector and produces $\hat{y}$ and the factual loss $\mathcal{L}_{\mathrm{full}}$. The second pass sets the target vector to zero and produces a counterfactual prediction $\hat{y}_{\mathrm{cf}}$ and loss $\mathcal{L}_{\mathrm{cf}}$. This design is related to margin based objectives and counterfactual reasoning~\cite{hadsell2006contrastive, schroff2015facenet, wachter2017counterfactual}.
 
-\section{Evaluation and interpretation}
-Generalization is evaluated under cold drug and cold cell splits. Performance is reported using sample-wise PCC and MSE. Attention weights are used as an interpretation signal by aggregating edge attentions across samples, and by grouping attentions by drug or by cell line when needed.
+A simple penalty is added when the counterfactual loss is too close to the factual loss. The model should perform worse when drug targets are removed. The penalty is
+\begin{equation}
+\mathcal{L}_{\mathrm{hinge}}=\max\!\left(0,\delta-\left(\mathcal{L}_{\mathrm{cf}}-\mathcal{L}_{\mathrm{full}}\right)\right).
+\end{equation}
+Here $\delta$ is a small gap that we want to see between the counterfactual and factual losses. If the gap is already large enough, the penalty is zero.
+The final loss function is
+\begin{equation}
+\mathcal{L}=\mathcal{L}_{\mathrm{full}}+\lambda_{\mathrm{cf}}\mathcal{L}_{\mathrm{hinge}}.
+\end{equation}
+This term pushes the model to make factual predictions better than counterfactual predictions. In our implementation, $\lambda_{\mathrm{cf}}$ and $\delta$ are configurable hyperparameters, with default values $\lambda_{\mathrm{cf}}=1.0$ and $\delta=0.1$.
+
+\subsection{Optimization}
+The model is trained with the Adam optimizer and a learning rate of $5\times 10^{-4}$. Mini batches are used, with batch size and number of epochs set as training hyperparameters. Training is monitored by reporting mean squared error and sample wise PCC on the training and validation sets after each epoch.
+
+\section{Evaluation}
+Model performance is evaluated with three data split settings. Warm start uses a random split of samples, so the same drug and the same cell line can appear in both training and test sets. Cold drug splits by compound, so test drugs do not appear in training. Cold cell splits by cell line, so test cell lines do not appear in training.
+
+\noindent PCC is used because the task focuses on gene level response patterns. It measures how well the model matches the relative up and down regulation across genes within a sample. It is also robust to global scaling differences between $y$ and $\hat{y}$. This makes it a useful complement to mean squared error.
+
+\noindent Performance is reported using mean squared error and sample wise Pearson correlation coefficient (PCC). The mean squared error is computed over samples and target genes,
+\begin{equation}
+\mathrm{MSE}=\frac{1}{N|\mathcal{G}_{\mathrm{tgt}}|}\sum_{i=1}^{N}\sum_{g\in\mathcal{G}_{\mathrm{tgt}}}\left(y_{ig}-\hat{y}_{ig}\right)^{2},
+\end{equation}
+where $N$ is the number of test samples and $\mathcal{G}_{\mathrm{tgt}}$ is the target gene set.
+For a sample $i$, PCC is computed between $y_{i}$ and $\hat{y}_{i}$,
+\begin{equation}
+\mathrm{PCC}_{i}=\frac{\sum_{g}\left(y_{ig}-\bar{y}_{i}\right)\left(\hat{y}_{ig}-\bar{\hat{y}}_{i}\right)}{\sqrt{\sum_{g}\left(y_{ig}-\bar{y}_{i}\right)^{2}}\sqrt{\sum_{g}\left(\hat{y}_{ig}-\bar{\hat{y}}_{i}\right)^{2}}},
+\end{equation}
+where $\bar{y}_{i}$ and $\bar{\hat{y}}_{i}$ are means over genes. The reported PCC is the average of $\mathrm{PCC}_{i}$ over samples.
+
+\subsection{Attention weights}
+Attention weights are extracted from the trained GAT as a method for interpretation. In each GAT layer, each edge $u\rightarrow v$ has a non negative weight $\alpha_{u\rightarrow v}$. For a fixed target node $v$, the weights over its incoming neighbours sum to one. This is because they are computed by applying a softmax over the neighbours of $v$. For each edge $u\rightarrow v$, the model first computes an unnormalized score $e_{u\rightarrow v}$ from the current node representations. Attention weights are then
+\begin{equation}
+\alpha_{u\rightarrow v}=\frac{\exp\left(e_{u\rightarrow v}\right)}{\sum_{k\in\mathcal{N}(v)}\exp\left(e_{k\rightarrow v}\right)},
+\end{equation}
+where $\mathcal{N}(v)$ is the set of incoming neighbours of node $v$. This normalization makes attention values comparable within the same neighbour set.
+
+\noindent The model can use multiple attention heads. Each head produces its own weights. In our analysis, head specific weights are averaged to obtain one attention value per edge. Attention is computed for each layer, so each edge has one attention value per layer. Attention weights are exported by running a forward pass. The exported file stores the directed edges as \texttt{edge\_index} and the corresponding mean attention values as \texttt{attention\_edge\_mean}. The mean is computed by averaging over attention heads and over a set of evaluation samples. The same aggregation can also be applied within a drug group or a cell line group.

@@ -1,9 +1,9 @@
 % !TeX root = thesis.tex
 \chapter{Data}
 
-This chapter describes the main data sources and data structure used in this thesis. We use two types of data: gene expression profiles from the CMAP LINCS 2020 dataset, and biological network information from the OmniPath database. These datasets provide complementary perspectives: the expression data captures how cells respond to different treatments, while the network data describes the regulatory and interaction relationships between genes and proteins. Together, they allow us to build models that integrate both molecular measurements and prior biological knowledge.
+This chapter describes the main data sources and data structure used in this thesis. Gene expression profiles from the CMAP LINCS 2020 dataset and biological network information from the OmniPath database are used in my thesis. These datasets give us two different views. The expression data shows how cells react to treatments. The network data shows how genes and proteins interact with each other. Together, they let us build models that combine real measurements with existing biological knowledge.
 
-The following sections explain the origin and structure of these datasets. We describe how the expression matrices and metadata are organized and how identifiers are used to connect expression profiles, compounds, and genes.
+\noindent The following sections describe the origin, structure, and preprocessing of these datasets, including how expression matrices and metadata are organized, and how identifiers link expression profiles, compounds, and genes.
 
 \section{CMap LINCS Dataset}
 % 介绍主要数据来源，如LINCS L1000、OmniPath、GDSC等。
@@ -27,7 +27,7 @@ In this thesis, we use Level 3 data, which provide normalized and inferred gene 
     \label{fig:data_level}
 \end{figure}
 
- Each experiment at Level 3 is represented as a vector of gene expression values in the shared gene space. We denote a profile as $x \in \mathbb{R}^{G}$, where $G=12{,}328$ for the full gene set, and $G=978$ when only the landmark genes are used. Profiles are indexed by unique identifiers (for example, \texttt{distil\_id}), and they are stored in large matrices where rows correspond to profiles and columns correspond to genes in a fixed order. A separate gene information table provides the mapping between column indices and gene identifiers.
+ \noindent Each experiment at Level 3 is represented as a vector of gene expression values in the shared gene space. We denote a profile as $x \in \mathbb{R}^{G}$, where $G=12{,}328$ for the full gene set, and $G=978$ when only the landmark genes are used. Profiles are indexed by unique identifiers (for example, \texttt{distil\_id}), and they are stored in large matrices where rows correspond to profiles and columns correspond to genes in a fixed order. A separate gene information table provides the mapping between column indices and gene identifiers.
 
 
 \subsection{Treatment and control data}
@@ -53,7 +53,7 @@ LINCS provides several quality related fields, including \texttt{is\_hiq} and \t
 Drug related information is collected from the compound annotation table \texttt{compoundinfo\_beta.txt}. This table is indexed by \texttt{pert\_id} and provides compound names (\texttt{cmap\_name}), a target field (\texttt{target}), mechanism of action text (\texttt{moa}), and chemical identifiers such as canonical SMILES and InChIKey. SMILES is a standard text string that describes a molecule's structure (atoms and bonds) in a compact form. InChIKey is a short, fixed length hashed identifier derived from the full InChI representation; it is designed for fast lookup and matching of compounds across databases.
 
 \paragraph{Target annotations}
-The \texttt{target} field lists reported protein or gene targets for a subset of compounds. A single drug may have multiple targets, so the \texttt{target} field can contain a list of genes rather than a single entry. Importantly, target information is not available for all drugs in LINCS, about 20\% of compounds have a nonempty target annotation. This missingness is expected because many perturbagens are insufficiently characterized or have incomplete curated annotations.
+The \texttt{target} field lists reported protein or gene targets for a subset of compounds. A single drug may have multiple targets, so the \texttt{target} field can contain a list of genes rather than a single entry. Importantly, target information is not available for all drugs in LINCS, about 20\% of compounds have a exist target annotation. This missingness is expected because many perturbagens are insufficiently characterized or have incomplete curated annotations.
 
 % \paragraph{Molecular fingerprints.}
 % To reduce reliance on incomplete target annotations, we also use molecular fingerprints (for example, Morgan/ECFP) as a fixed length representation of chemical structure. Fingerprints provide dense drug features even when curated target annotations are missing, and they support generalization across compounds based on structural similarity.
@@ -175,13 +175,13 @@ The metadata also include cell context (\texttt{cell\_iname}) and batch/plate va
 \section{OmniPath Dataset}
 OmniPath is a public database that collects information about molecular interactions, signaling pathways and regulatory relationships in human cells. It combines data from many pathway and transcription factor resources and links them into a single interaction table. In this thesis we use the transcription factor regulon part of OmniPath, where each row describes a regulator, a target gene and whether the interaction is activating or inhibiting.
 
-For each interaction, OmniPath stores several fields that describe the direction and sign of the relationship, together with evidence related metadata. For example, the columns \texttt{is\_directed}, \texttt{is\_stimulation} and \texttt{is\_inhibition} indicate whether the interaction is directed and whether it is activating or inhibiting. OmniPath also records evidence strength through fields such as \texttt{sources}, \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. The column \texttt{references} lists supporting entries together with publication identifiers, and \texttt{references\_stripped} provides cleaned identifiers.
+\noindent For each interaction, OmniPath stores several fields that describe the direction and sign of the relationship, together with evidence related metadata. For example, the columns \texttt{is\_directed}, \texttt{is\_stimulation} and \texttt{is\_inhibition} indicate whether the interaction is directed and whether it is activating or inhibiting. OmniPath also records evidence strength through fields such as \texttt{sources}, \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. The column \texttt{references} lists supporting entries together with publication identifiers, and \texttt{references\_stripped} provides cleaned identifiers.
 
-OmniPath integrates interactions from many resources, so different sources may provide conflicting annotations for the same interaction, for example reporting stimulation in one database and inhibition in another. OmniPath records both the individual annotations and consensus fields, which can be used to identify and handle such conflicts during graph construction.
+\noindent OmniPath integrates interactions from many resources, so different sources may provide conflicting annotations for the same interaction, for example reporting stimulation in one database and inhibition in another. OmniPath records both the individual annotations and consensus fields, which can be used to identify and handle such conflicts during graph construction.
 
-OmniPath also provides evidence counts for each edge, such as \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. These fields summarize how many databases and publications support an interaction. When sources disagree, this can be noise, but it can also reflect regulation that depends on cell type or experimental conditions. In our graph construction we use consensus and evidence counts to reduce uncertainty, while accepting that the final network may still contain imperfect edges.
+\noindent OmniPath also provides evidence counts for each edge, such as \texttt{n\_sources}, \texttt{n\_primary\_sources} and \texttt{n\_references}. These fields summarize how many databases and publications support an interaction. When sources disagree, this can be noise, but it can also reflect regulation that depends on cell type or experimental conditions. In our graph construction we use consensus and evidence counts to reduce uncertainty, while accepting that the final network may still contain imperfect edges.
 
-In our setting, genes from the LINCS expression matrix are mapped to nodes in the OmniPath regulon graph. The resulting directed network encodes transcription factor gene relationships that are supported by published studies. When we combine this network with the gene expression profiles, the model can use both experimental measurements and prior regulatory information, which helps interpret predictions in a biological context.
+\noindent In our setting, genes from the LINCS expression matrix are mapped to nodes in the OmniPath regulon graph. The resulting directed network encodes transcription factor gene relationships that are supported by published studies. When we combine this network with the gene expression profiles, the model can use both experimental measurements and prior regulatory information, which helps interpret predictions in a biological context.
 
 \begin{figure}[H]
     \centering
@@ -228,7 +228,7 @@ For each treatment profile, we sample several control profiles from the same cel
 y = x_{\mathrm{trt}} - x_{\mathrm{ctl}},
 \]
 where $x_{\mathrm{trt}}$ is the treatment expression vector and $x_{\mathrm{ctl}}$ is the matched control expression vector.
-This construction removes much of the baseline cell state and focuses learning on the perturbation induced change. When controls are measured in a similar experimental context, the subtraction cancels out technical shifts that affect both treatment and control (for example, plate or batch effects), making the response target more stable for regression.
+This construction removes much of the baseline cell state and focuses learning on the change of gene expression induced by drug perturbation. When controls are measured in a similar experimental context, The subtraction removes shared technical noise, such as batch or plate effects, and makes the target easier to predict.
 
 % \begin{figure}[H]
 %     \centering
@@ -247,12 +247,12 @@ This construction removes much of the baseline cell state and focuses learning o
 \end{figure}
 
 \paragraph{Drug feature construction.}
-Each training example is linked to a compound identifier. A sparse target annotation vector over the selected gene set is constructed by mapping curated target gene symbols to the gene identifiers used in the expression matrix.
+Each training example is linked to a compound identifier. A sparse target annotation vector over the selected gene set is constructed by mapping annotated target gene symbols to the gene identifiers used in the expression matrix.
 \paragraph{Example filtering.}
-Only treatment examples with available drug target annotations are retained. Examples whose \texttt{pert\_id} cannot be linked to a nonempty \texttt{target} field in \texttt{compoundinfo\_beta.txt} are removed.
+Only treatment examples with available drug target annotations are retained. Examples whose \texttt{pert\_id} cannot be linked to a exist \texttt{target} field in \texttt{compoundinfo\_beta.txt} are removed.
 
 \paragraph{Outputs.}
-After preprocessing, the dataset consists of aligned arrays for control expression, drug target vectors, and response targets. Identifiers for cell line, bead batch, detection plate, and profile ids are also retained. These identifiers are used for evaluation, grouping analysis, and sanity checks related to batch effects.
+After preprocessing, the dataset contains matched arrays for control gene expression, drug target vectors, and response targets. Identifiers for cell line, bead batch, detection plate, and profile ids are also retained. These identifiers are used for evaluation, grouping analysis.
 
 % \begin{figure}[H]
 %     \centering
@@ -262,10 +262,10 @@ After preprocessing, the dataset consists of aligned arrays for control expressi
 % \end{figure}
 
 \subsection{OmniPath graph preprocessing}
-In this thesis, the prior interaction graph is constructed by merging two OmniPath tables: the transcription factor regulon table (\texttt{omnipath\_tf\_regulons.csv}) and the interaction table (\texttt{omnipath\_interactions.csv}). This merge increases edge coverage, so more genes in the expression space have informative neighbours during message passing. Each row describes a source gene and a target gene together with sign information indicating stimulation or inhibition when available.
+In this thesis, the prior interaction graph is constructed by merging the transcription factor regulon table (\texttt{omnipath\_tf\_regulons.csv}) and the interaction table (\texttt{omnipath\_interactions.csv}). This merge increases edge coverage, so more genes have neighbours that are useful in the expression data during message passing. Each row describes a source gene and a target gene together with sign information indicating stimulation or inhibition when available.
 
 \paragraph{Identifier alignment.}
-OmniPath tables are provided in gene symbols. These symbols are mapped to the gene identifiers used by the expression matrices (Entrez identifiers in landmark mode). Edges are retained only when both endpoints can be mapped and both genes are present in the selected gene set. This ensures that graph nodes, expression vectors, and drug target vectors refer to the same ordered gene list.
+OmniPath tables are provided in gene symbols. These symbols are mapped to the gene identifiers used by the expression matrices. Edges are retained only when both endpoints can be mapped and both genes are present in the selected gene set. This ensures that graph nodes, expression vectors, and drug target vectors refer to the same ordered gene list.
 
 \paragraph{Direction and sign.}
 The graph is represented as a directed edge list. When OmniPath provides sign annotations, each edge is assigned a sign value $w\in\{+1,-1\}$ corresponding to stimulation or inhibition. If sign information is missing for an edge, it can be excluded or treated as unknown depending on the experiment setting.
