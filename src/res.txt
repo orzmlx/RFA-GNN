@@ -1,0 +1,19 @@
+===== GSNN Summary =====
+warm: train_n=42576 test_n=3548 | test_MSE=0.9609 | test_PCC=0.4609
+cold_drug: train_n=45678 test_n=2514 | test_MSE=1.0901 | test_PCC=0.4556
+cold_cell: train_n=48873 test_n=1449 | test_MSE=0.8466 | test_PCC=0.4237
+saved /local/data1/liume102/rfa/gsnn_res/gsnn_978_allcells_results.json
+
+
+=====GAT  Summary =====
+warm: train_n=42576 test_n=3548 | test_MSE=0.8522 | test_PCC=0.5390
+cold_drug: train_n=45678 test_n=2514 | test_MSE=0.9885 | test_PCC=0.5178
+cold_cell: train_n=48873 test_n=1449 | test_MSE=1.4326 | test_PCC=0.3924
+
+Saved predictions to: /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred.cold_cell.npz
+
+=====deepcop Summary =====
+warm: train_n=42576 test_n=3548 | test_MSE=0.8492 | test_PCC=0.4640
+cold_drug: train_n=45678 test_n=2514 | test_MSE=1.1508 | test_PCC=0.3283
+cold_cell: train_n=48873 test_n=1449 | test_MSE=0.8501 | test_PCC=0.2911
+Saved results to: /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_results.json

@@ -17,10 +17,23 @@ class DeepCOP(tf.keras.Model):
     - Regularization: BN + Dropout (0.2)
     """
     
-    def __init__(self, num_genes, drug_dim=2048, dropout=0.2, use_residual=True, go_matrix=None, **kwargs):
+    def __init__(
+        self,
+        num_genes,
+        drug_dim=2048,
+        dropout=0.2,
+        use_residual=True,
+        go_matrix=None,
+        original_architecture=False,
+        hidden_dim=1024,
+        **kwargs,
+    ):
         super(DeepCOP, self).__init__(**kwargs)
         self.use_residual = use_residual
         self.num_genes = num_genes
+        self.drug_dim = int(drug_dim)
+        self.dropout_rate = float(dropout)
+        self.original_architecture = bool(original_architecture)
         
         # 处理 GO Matrix
         self.go_matrix = None
@@ -35,21 +48,26 @@ class DeepCOP(tf.keras.Model):
         # Input Normalization (Crucial for stability)
         self.input_bn = layers.BatchNormalization(name='input_bn')
         
-        # DeepCOP Architecture Logic: Modified for stability
-        # Original: Hidden Dim = Input Dim (Too large, ~4000)
-        # Modified: Fixed size 1024 for stability
-        self.hidden_dim = 1024
+        input_dim = int(num_genes) + int(self.drug_dim) + int(go_dim)
+        if self.original_architecture:
+            self.hidden_dim = int(input_dim)
+            act1 = "selu"
+            act2 = "relu"
+        else:
+            self.hidden_dim = int(hidden_dim)
+            act1 = "relu"
+            act2 = "relu"
         
         # Layer 1: Dense -> BN -> ReLU -> Dropout
         self.dense1 = layers.Dense(self.hidden_dim, name='dense_1')
         self.bn1 = layers.BatchNormalization(name='bn_1')
-        self.act1 = layers.Activation('relu', name='act_1')
+        self.act1 = layers.Activation(act1, name='act_1')
         self.drop1 = layers.Dropout(dropout, name='drop_1')
         
         # Layer 2: Dense -> BN -> ReLU -> Dropout
         self.dense2 = layers.Dense(self.hidden_dim, name='dense_2')
         self.bn2 = layers.BatchNormalization(name='bn_2')
-        self.act2 = layers.Activation('relu', name='act_2')
+        self.act2 = layers.Activation(act2, name='act_2')
         self.drop2 = layers.Dropout(dropout, name='drop_2')
         
         # Output Layer: Dense(num_genes) -> Linear
@@ -108,8 +126,10 @@ class DeepCOP(tf.keras.Model):
         config = super(DeepCOP, self).get_config()
         config.update({
             "num_genes": self.num_genes,
-            "drug_dim": 2048, # default
-            "dropout": 0.2,   # default
-            "use_residual": self.use_residual
+            "drug_dim": self.drug_dim,
+            "dropout": self.dropout_rate,
+            "use_residual": self.use_residual,
+            "original_architecture": self.original_architecture,
+            "hidden_dim": self.hidden_dim,
         })
         return config

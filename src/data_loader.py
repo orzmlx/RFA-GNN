@@ -1,4 +1,5 @@
 from typing import Any
+import heapq
 import pandas as pd
 import numpy as np
 import omnipath as op
@@ -195,168 +196,6 @@ def download_omnipath_network(output_path='data/omnipath/'):
 
     except Exception as e:
         raise Exception (f"OmniPath API 调用失败: {e}")
-
-
-# def build_gnn_from_tf_network(
-#     tf_path="data/omnipath/omnipath_tf_regulons.csv",
-#     landmark_path="data/landmark_genes.json",
-#     landmark_genes=None,
-#     use_landmark_filter=True,
-#     mapping_path=None,
-#     include_non_landmark_nodes=False,
-# ):
-#     """
-#     读取 TF 调控网络，构建 GNN 邻接矩阵和节点索引。
-#     Args:
-#         tf_path: TF调控网络csv文件路径，需包含 source_genesymbol, target_genesymbol 两列。
-#         landmark_path: landmark 基因列表路径（json 或 txt）。
-#         landmark_genes: 预加载的 landmark 基因列表（保持顺序）。
-#     Returns:
-#         adj_matrix: (N, N) numpy array，邻接矩阵（有向，1表示有调控）
-#         node_list: 节点（基因）名称列表
-#         gene2idx: 节点名称到索引的映射
-#         edge_index: (2, E) numpy array，GNN常用边索引格式
-#     """
-#     df = pd.read_csv(tf_path)
-#     # 选择 genesymbol 列（优先）
-#     source_col = 'source_genesymbol' if 'source_genesymbol' in df.columns else 'source'
-#     target_col = 'target_genesymbol' if 'target_genesymbol' in df.columns else 'target'
-
-#     # 过滤 landmark 基因
-#     landmark_set = None
-#     symbol_to_entrez = {}
-
-#     # 如需要且未传入 landmark_genes，则从文件加载
-#     if use_landmark_filter and landmark_genes is None and os.path.exists(landmark_path):
-#         try:
-#             if landmark_path.endswith('.json'):
-#                 with open(landmark_path, 'r') as f:
-#                     genes_meta = json.load(f)
-#                 landmark_genes = [g['gene_symbol'] for g in genes_meta if 'gene_symbol' in g]
-#             else:
-#                 with open(landmark_path, 'r') as f:
-#                     landmark_genes = [line.strip() for line in f if line.strip()]
-#             print(f"已加载 landmark 基因列表: {len(landmark_genes)} (来自 {landmark_path})")
-#         except Exception as e:
-#             print(f"加载 landmark 基因列表失败: {e}")
-    
-#     # 尝试加载映射表 (Symbol -> Entrez)
-#     mapping_source = mapping_path or landmark_path
-#     if os.path.exists(mapping_source):
-#         try:
-#             if mapping_source.endswith('.json'):
-#                 with open(mapping_source, 'r') as f:
-#                     genes_meta = json.load(f)
-#                 # 建立 Symbol -> Entrez ID (str) 映射
-#                 for g in genes_meta:
-#                     if 'gene_symbol' in g and 'entrez_id' in g:
-#                         symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
-#             else:
-#                 # 如果是 txt，无法建立映射，只能假设输入就是 Symbol
-#                 pass
-#         except Exception as e:
-#             print(f"加载映射失败: {e}")
-
-#     # 如果传入的 landmark_genes 是 Entrez ID (数字字符串)，我们需要将 OmniPath 的 Symbol 转为 Entrez
-#     # 判断 landmark_genes 的第一个元素是否是数字
-#     is_entrez = False
-#     if landmark_genes and len(landmark_genes) > 0:
-#         first_gene = str(landmark_genes[0])
-#         if first_gene.isdigit():
-#             is_entrez = True
-#             print(f"检测到 Landmark Genes 为 Entrez ID (e.g., {first_gene})，将尝试映射 OmniPath Symbol...")
-    
-#     if is_entrez and not symbol_to_entrez:
-#         # 若 landmark 为 Entrez，但未加载到映射，尝试默认 JSON
-#         fallback_json = "data/landmark_genes.json"
-#         if os.path.exists(fallback_json):
-#             try:
-#                 with open(fallback_json, 'r') as f:
-#                     genes_meta = json.load(f)
-#                 for g in genes_meta:
-#                     if 'gene_symbol' in g and 'entrez_id' in g:
-#                         symbol_to_entrez[g['gene_symbol']] = str(g['entrez_id'])
-#                 print(f"使用备用映射: {fallback_json}")
-#             except Exception as e:
-#                 print(f"备用映射加载失败: {e}")
-
-#     if is_entrez and symbol_to_entrez:
-#         if include_non_landmark_nodes:
-#             # 允许非 landmark 节点：无法映射的保留原 symbol
-#             df['source_mapped'] = df[source_col].map(symbol_to_entrez).fillna(df[source_col].astype(str))
-#             df['target_mapped'] = df[target_col].map(symbol_to_entrez).fillna(df[target_col].astype(str))
-#             source_col = 'source_mapped'
-#             target_col = 'target_mapped'
-#             print(f"映射后 OmniPath 剩余记录: {len(df)}")
-#         else:
-#             # 只保留能映射到 Entrez 的边（等价于两端均在 landmark 映射中）
-#             df['source_entrez'] = df[source_col].map(symbol_to_entrez)
-#             df['target_entrez'] = df[target_col].map(symbol_to_entrez)
-#             df = df.dropna(subset=['source_entrez', 'target_entrez'])
-#             source_col = 'source_entrez'
-#             target_col = 'target_entrez'
-#             print(f"映射后 OmniPath 剩余记录: {len(df)}")
-    
-#     if use_landmark_filter and landmark_genes:
-#         landmark_set = set(landmark_genes)
-#         # 只要 source 或 target 在 landmark 中即可保留
-#         df = df[df[source_col].isin(landmark_set) | df[target_col].isin(landmark_set)]
-
-#     # 只保留有向调控关系
-#     sources = df[source_col].astype(str)
-#     targets = df[target_col].astype(str)
-#     # 使用过滤后的图构建节点列表
-#     # 保留全部 landmark 节点，并加入与其相连的非 landmark 节点
-#     if use_landmark_filter and landmark_genes:
-#         if include_non_landmark_nodes:
-#             node_list = sorted(set(landmark_genes) | set(sources) | set(targets))
-#         else:
-#             node_list = list(landmark_genes)
-#     else:
-#         node_list = sorted(set(sources) | set(targets))
-#     gene2idx = {g: i for i, g in enumerate(node_list)}
-#     N = len(node_list)
-#     adj_matrix = np.zeros((N, N), dtype=np.float32)
-#     edge_list = []
-#     for src, tgt in zip(sources, targets):
-#         if src in gene2idx and tgt in gene2idx:
-#             i, j = gene2idx[src], gene2idx[tgt]
-#             adj_matrix[i, j] = 1
-#             edge_list.append((i, j))
-#     # GNN常用edge_index格式
-#     if edge_list:
-#         edge_index = np.array(edge_list).T  # shape (2, E)
-#         print(f"TF网络节点数: {N}，边数: {len(edge_list)}")
-#         total_possible = N * N
-#         density = len(edge_list) / total_possible if total_possible > 0 else 0.0
-#         sparsity = 1.0 - density
-#         print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
-        
-#         # --- 关键修复: 添加自环 (Self-Loops) ---
-#         # 保证每个节点至少与自己相连，避免 GNN 在孤立节点上聚合噪声
-#         np.fill_diagonal(adj_matrix, 1.0)
-#         print("已添加自环 (Self-Loops) 以增强图连通性。")
-#         density_with_loops = (len(edge_list) + N) / total_possible if total_possible > 0 else 0.0
-#         sparsity_with_loops = 1.0 - density_with_loops
-#         print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
-        
-#         return adj_matrix, node_list, gene2idx, edge_index
-    
-#     # 没有有效边时，返回空边索引但保持尺寸一致
-#     print("警告: 未找到有效的TF调控边，返回空图结构。")
-#     total_possible = N * N
-#     density = 0.0
-#     sparsity = 1.0 - density
-#     print(f"稀疏度(无自环): {sparsity:.6f} (密度: {density:.6f})")
-#     # 即使是空图，也应该加自环，退化为 MLP
-#     np.fill_diagonal(adj_matrix, 1.0)
-#     print("已添加自环 (Self-Loops) 以防止计算崩溃。")
-#     density_with_loops = N / total_possible if total_possible > 0 else 0.0
-#     sparsity_with_loops = 1.0 - density_with_loops
-#     print(f"稀疏度(含自环): {sparsity_with_loops:.6f} (密度: {density_with_loops:.6f})")
-    
-#     edge_index = np.zeros((2, 0), dtype=int)
-#     return adj_matrix, node_list, gene2idx, edge_index
 
 
 def build_combined_gnn(
@@ -606,139 +445,139 @@ def build_combined_gnn(
     return adj_matrix, node_list, gene2idx, np.array(edge_index)
 
 
-def combine_full_grapg(
-    tf_path="data/omnipath/omnipath_tf_regulons.csv",
-    ppi_path="data/omnipath/omnipath_interactions.csv",
-    target_genes=None,
-    directed=True,
-    symbol_to_entrez=None,
-    default_weight=1.0,
-):
-    print(">>> 正在构建 Full Graph (TF + PPI, no sign filtering) ...")
+# def combine_full_grapg(
+#     tf_path="data/omnipath/omnipath_tf_regulons.csv",
+#     ppi_path="data/omnipath/omnipath_interactions.csv",
+#     target_genes=None,
+#     directed=True,
+#     symbol_to_entrez=None,
+#     default_weight=1.0,
+# ):
+#     print(">>> 正在构建 Full Graph (TF + PPI, no sign filtering) ...")
 
-    def _norm_symbol(s):
-        return str(s).strip().upper()
+#     def _norm_symbol(s):
+#         return str(s).strip().upper()
 
-    def _norm_entrez(x):
-        s = str(x).strip()
-        if s.endswith(".0"):
-            s = s[:-2]
-        return s
+#     def _norm_entrez(x):
+#         s = str(x).strip()
+#         if s.endswith(".0"):
+#             s = s[:-2]
+#         return s
 
-    if not symbol_to_entrez or symbol_to_entrez is None:
-        raise RuntimeError("未能构建 symbol_to_entrez 映射：请检查 full_gene_path / landmark_path 文件。")
-    if target_genes is None or len(target_genes) == 0:
-        raise Exception("target_genes 不能为空")
+#     if not symbol_to_entrez or symbol_to_entrez is None:
+#         raise RuntimeError("未能构建 symbol_to_entrez 映射：请检查 full_gene_path / landmark_path 文件。")
+#     if target_genes is None or len(target_genes) == 0:
+#         raise Exception("target_genes 不能为空")
 
-    target_entrez = [_norm_entrez(x) for x in target_genes]
-    target_entrez = [x for x in target_entrez if x]
-    target_entrez = list(dict.fromkeys(target_entrez))
-    target_genes_set = set(target_entrez)
+#     target_entrez = [_norm_entrez(x) for x in target_genes]
+#     target_entrez = [x for x in target_entrez if x]
+#     target_entrez = list(dict.fromkeys(target_entrez))
+#     target_genes_set = set(target_entrez)
 
-    def _pick_sign_fallback(s, t):
-        import hashlib
+#     def _pick_sign_fallback(s, t):
+#         import hashlib
 
-        h = hashlib.md5(f"{s}|{t}".encode("utf-8")).digest()
-        return 1.0 if (int.from_bytes(h[:2], "big") % 2 == 0) else -1.0
+#         h = hashlib.md5(f"{s}|{t}".encode("utf-8")).digest()
+#         return 1.0 if (int.from_bytes(h[:2], "big") % 2 == 0) else -1.0
 
-    def _extract_edges(df):
-        if df is None or df.shape[0] == 0:
-            return []
-        if "source_genesymbol" not in df.columns or "target_genesymbol" not in df.columns:
-            return []
+#     def _extract_edges(df):
+#         if df is None or df.shape[0] == 0:
+#             return []
+#         if "source_genesymbol" not in df.columns or "target_genesymbol" not in df.columns:
+#             return []
 
-        src_sym = df["source_genesymbol"].astype(str).map(_norm_symbol)
-        tgt_sym = df["target_genesymbol"].astype(str).map(_norm_symbol)
-        src_entrez = src_sym.map(symbol_to_entrez)
-        tgt_entrez = tgt_sym.map(symbol_to_entrez)
-        valid = src_entrez.notna() & tgt_entrez.notna()
-        if not bool(valid.any()):
-            return []
+#         src_sym = df["source_genesymbol"].astype(str).map(_norm_symbol)
+#         tgt_sym = df["target_genesymbol"].astype(str).map(_norm_symbol)
+#         src_entrez = src_sym.map(symbol_to_entrez)
+#         tgt_entrez = tgt_sym.map(symbol_to_entrez)
+#         valid = src_entrez.notna() & tgt_entrez.notna()
+#         if not bool(valid.any()):
+#             return []
 
-        is_directed_mask = df["is_directed"].fillna(False).astype(bool) if "is_directed" in df.columns else None
-        stim = df["is_stimulation"].fillna(False).astype(bool) if "is_stimulation" in df.columns else None
-        inhib = df["is_inhibition"].fillna(False).astype(bool) if "is_inhibition" in df.columns else None
-        cs = df["consensus_stimulation"].fillna(False).astype(bool) if "consensus_stimulation" in df.columns else None
-        ci = df["consensus_inhibition"].fillna(False).astype(bool) if "consensus_inhibition" in df.columns else None
+#         is_directed_mask = df["is_directed"].fillna(False).astype(bool) if "is_directed" in df.columns else None
+#         stim = df["is_stimulation"].fillna(False).astype(bool) if "is_stimulation" in df.columns else None
+#         inhib = df["is_inhibition"].fillna(False).astype(bool) if "is_inhibition" in df.columns else None
+#         cs = df["consensus_stimulation"].fillna(False).astype(bool) if "consensus_stimulation" in df.columns else None
+#         ci = df["consensus_inhibition"].fillna(False).astype(bool) if "consensus_inhibition" in df.columns else None
 
-        edges = []
-        for idx in np.where(valid.values)[0]:
-            s = str(src_entrez.iloc[idx])
-            t = str(tgt_entrez.iloc[idx])
-            if s not in target_genes_set or t not in target_genes_set:
-                continue
+#         edges = []
+#         for idx in np.where(valid.values)[0]:
+#             s = str(src_entrez.iloc[idx])
+#             t = str(tgt_entrez.iloc[idx])
+#             if s not in target_genes_set or t not in target_genes_set:
+#                 continue
 
-            sign = None
-            if cs is not None and ci is not None:
-                cs_i = bool(cs.iloc[idx])
-                ci_i = bool(ci.iloc[idx])
-                if cs_i and not ci_i:
-                    sign = 1.0
-                elif ci_i and not cs_i:
-                    sign = -1.0
-                elif cs_i and ci_i:
-                    sign = _pick_sign_fallback(s, t)
-            if sign is None and stim is not None and inhib is not None:
-                stim_i = bool(stim.iloc[idx])
-                inhib_i = bool(inhib.iloc[idx])
-                if stim_i and not inhib_i:
-                    sign = 1.0
-                elif inhib_i and not stim_i:
-                    sign = -1.0
-                elif stim_i and inhib_i:
-                    sign = _pick_sign_fallback(s, t)
-            if sign is None:
-                sign = 1.0
-            w = float(default_weight) * float(sign)
+#             sign = None
+#             if cs is not None and ci is not None:
+#                 cs_i = bool(cs.iloc[idx])
+#                 ci_i = bool(ci.iloc[idx])
+#                 if cs_i and not ci_i:
+#                     sign = 1.0
+#                 elif ci_i and not cs_i:
+#                     sign = -1.0
+#                 elif cs_i and ci_i:
+#                     sign = _pick_sign_fallback(s, t)
+#             if sign is None and stim is not None and inhib is not None:
+#                 stim_i = bool(stim.iloc[idx])
+#                 inhib_i = bool(inhib.iloc[idx])
+#                 if stim_i and not inhib_i:
+#                     sign = 1.0
+#                 elif inhib_i and not stim_i:
+#                     sign = -1.0
+#                 elif stim_i and inhib_i:
+#                     sign = _pick_sign_fallback(s, t)
+#             if sign is None:
+#                 sign = 1.0
+#             w = float(default_weight) * float(sign)
 
-            is_dir = bool(is_directed_mask.iloc[idx]) if is_directed_mask is not None else True
-            if is_dir:
-                edges.append((s, t, w))
-            else:
-                if bool(directed):
-                    edges.append((s, t, abs(w)))
-                    edges.append((t, s, abs(w)))
-                else:
-                    u, v = (s, t) if s <= t else (t, s)
-                    edges.append((u, v, abs(w)))
-        return edges
+#             is_dir = bool(is_directed_mask.iloc[idx]) if is_directed_mask is not None else True
+#             if is_dir:
+#                 edges.append((s, t, w))
+#             else:
+#                 if bool(directed):
+#                     edges.append((s, t, abs(w)))
+#                     edges.append((t, s, abs(w)))
+#                 else:
+#                     u, v = (s, t) if s <= t else (t, s)
+#                     edges.append((u, v, abs(w)))
+#         return edges
 
-    edges = []
-    if tf_path is not None and os.path.exists(tf_path):
-        df_tf = pd.read_csv(tf_path)
-        edges.extend(_extract_edges(df_tf))
-    if ppi_path is not None and os.path.exists(ppi_path):
-        df_ppi = pd.read_csv(ppi_path)
-        edges.extend(_extract_edges(df_ppi))
+#     edges = []
+#     if tf_path is not None and os.path.exists(tf_path):
+#         df_tf = pd.read_csv(tf_path)
+#         edges.extend(_extract_edges(df_tf))
+#     if ppi_path is not None and os.path.exists(ppi_path):
+#         df_ppi = pd.read_csv(ppi_path)
+#         edges.extend(_extract_edges(df_ppi))
 
-    edge_map = {}
-    for s, t, w in edges:
-        key = (str(s), str(t))
-        prev = edge_map.get(key)
-        if prev is None:
-            edge_map[key] = w
-        else:
-            edge_map[key] = w if abs(w) > abs(prev) else prev
-    edges = [(s, t, w) for (s, t), w in edge_map.items()]
+#     edge_map = {}
+#     for s, t, w in edges:
+#         key = (str(s), str(t))
+#         prev = edge_map.get(key)
+#         if prev is None:
+#             edge_map[key] = w
+#         else:
+#             edge_map[key] = w if abs(w) > abs(prev) else prev
+#     edges = [(s, t, w) for (s, t), w in edge_map.items()]
 
-    node_list = target_entrez
-    gene2idx = {g: i for i, g in enumerate(node_list)}
-    N = len(node_list)
-    adj_matrix = np.zeros((N, N), dtype=np.float32)
-    edge_index = [[], []]
-    count = 0
-    for u, v, w in edges:
-        if u in gene2idx and v in gene2idx:
-            i, j = gene2idx[u], gene2idx[v]
-            if abs(w) > abs(adj_matrix[j, i]):
-                adj_matrix[j, i] = w
-            edge_index[0].append(i)
-            edge_index[1].append(j)
-            count += 1
+#     node_list = target_entrez
+#     gene2idx = {g: i for i, g in enumerate(node_list)}
+#     N = len(node_list)
+#     adj_matrix = np.zeros((N, N), dtype=np.float32)
+#     edge_index = [[], []]
+#     count = 0
+#     for u, v, w in edges:
+#         if u in gene2idx and v in gene2idx:
+#             i, j = gene2idx[u], gene2idx[v]
+#             if abs(w) > abs(adj_matrix[j, i]):
+#                 adj_matrix[j, i] = w
+#             edge_index[0].append(i)
+#             edge_index[1].append(j)
+#             count += 1
 
-    np.fill_diagonal(adj_matrix, 1.0)
-    print(f"Full Graph 构建完成: {N} 节点, {count} 边 (含权重)")
-    return adj_matrix, node_list, gene2idx, np.array(edge_index)
+#     np.fill_diagonal(adj_matrix, 1.0)
+#     print(f"Full Graph 构建完成: {N} 节点, {count} 边 (含权重)")
+#     return adj_matrix, node_list, gene2idx, np.array(edge_index)
 
 
 def load_go_fingerprints(file_path, gene_list):
@@ -812,6 +651,359 @@ def load_go_fingerprints(file_path, gene_list):
         print(f"部分缺失示例: {missing_genes[:5]} ...")
         
     return aligned_matrix
+
+
+def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42):
+    split_mode = str(split_mode).strip()
+    if test_frac <= 0.0 or test_frac >= 1.0:
+        raise ValueError("--test_frac 需要在 (0, 1) 之间")
+    rng = np.random.default_rng(int(seed))
+    n = len(drug_ids)
+    if split_mode == "warm":
+        if n < 2:
+            raise RuntimeError("warm 需要至少 2 个样本")
+        n_test = max(1, int(n * test_frac))
+        n_test = min(n_test, n - 1)
+        held = rng.choice(np.arange(n), size=n_test, replace=False)
+        test_mask = np.zeros((n,), dtype=bool)
+        test_mask[held] = True
+        train_mask = ~test_mask
+        print(f"Split=warm | Held-out trt samples: {int(np.sum(test_mask))}/{n}")
+        return train_mask, test_mask
+    if split_mode == "cold_cell":
+        unique_cells = np.unique(cell_names)
+        if len(unique_cells) < 2:
+            raise RuntimeError("cold_cell 需要至少 2 个细胞系")
+        n_test = max(1, int(len(unique_cells) * test_frac))
+        n_test = min(n_test, len(unique_cells) - 1)
+        held = rng.choice(unique_cells, size=n_test, replace=False)
+        test_mask = np.isin(cell_names, held)
+        train_mask = ~test_mask
+        print(f"Split=cold_cell | Held-out cells: {len(held)}/{len(unique_cells)}")
+        return train_mask, test_mask
+    if split_mode == "cold_drug":
+        unique_drugs = np.unique(drug_ids)
+        if len(unique_drugs) < 2:
+            raise RuntimeError("cold_drug 需要至少 2 个药物")
+        n_test = max(1, int(len(unique_drugs) * test_frac))
+        n_test = min(n_test, len(unique_drugs) - 1)
+        held = rng.choice(unique_drugs, size=n_test, replace=False)
+        test_mask = np.isin(drug_ids, held)
+        train_mask = ~test_mask
+        print(f"Split=cold_drug | Held-out drugs: {len(held)}/{len(unique_drugs)}")
+        return train_mask, test_mask
+    raise ValueError(f"未知 split_mode: {split_mode}")
+
+
+def subset_anchor_data(data, indices):
+    idx = np.asarray(indices)
+    out = dict(data)
+    array_keys = [
+        "anchor_X_trt",
+        "anchor_X_drug",
+        "anchor_X_fingerprint",
+        "anchor_drug_fp_idx",
+        "anchor_drug_has_target",
+        "anchor_drug_has_fp",
+        "anchor_drug_ids",
+        "anchor_trt_distil_ids",
+        "anchor_cell_names",
+        "anchor_batch_ids",
+        "anchor_det_plate_ids",
+    ]
+    for k in array_keys:
+        if k in out and out[k] is not None:
+            out[k] = np.asarray(out[k])[idx]
+    if "anchor_ctl_candidates" in out and out["anchor_ctl_candidates"] is not None:
+        candidates = out["anchor_ctl_candidates"]
+        out["anchor_ctl_candidates"] = [list(candidates[int(i)]) for i in idx.tolist()]
+    return out
+
+
+def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
+    train_candidates = [[str(c) for c in cands] for cands in train_candidates]
+    test_candidates = [[str(c) for c in cands] for cands in test_candidates]
+    train_used = set()
+    test_used = set()
+    for cands in train_candidates:
+        train_used.update(cands)
+    for cands in test_candidates:
+        test_used.update(cands)
+
+    train_allowed = set(train_used - test_used)
+    test_allowed = set(test_used - train_used)
+    shared = set(train_used & test_used)
+    rng = np.random.default_rng(int(seed))
+
+    def _prepare(side_candidates, allowed):
+        unmet = set()
+        anchor_to_shared = {}
+        shared_to_anchors = {}
+        for i, cands in enumerate(side_candidates):
+            has_unique = any(c in allowed for c in cands)
+            shared_list = [c for c in cands if c in shared]
+            anchor_to_shared[i] = shared_list
+            if not has_unique:
+                unmet.add(i)
+                for ctl_id in shared_list:
+                    shared_to_anchors.setdefault(ctl_id, []).append(i)
+        return unmet, anchor_to_shared, shared_to_anchors
+
+    train_unmet, train_anchor_to_shared, train_shared_to_anchors = _prepare(train_candidates, train_allowed)
+    test_unmet, test_anchor_to_shared, test_shared_to_anchors = _prepare(test_candidates, test_allowed)
+
+    train_cover = {ctl_id: len(anchors) for ctl_id, anchors in train_shared_to_anchors.items()}
+    test_cover = {ctl_id: len(anchors) for ctl_id, anchors in test_shared_to_anchors.items()}
+    assigned_side = {}
+    heap = []
+    for ctl_id in shared:
+        score = max(train_cover.get(ctl_id, 0), test_cover.get(ctl_id, 0))
+        heapq.heappush(heap, (-score, ctl_id))
+
+    def _resolve_anchor(side, anchor_idx):
+        if side == "train":
+            if anchor_idx not in train_unmet:
+                return
+            train_unmet.remove(anchor_idx)
+            for other_ctl in train_anchor_to_shared.get(anchor_idx, []):
+                if assigned_side.get(other_ctl) is None:
+                    train_cover[other_ctl] = max(0, int(train_cover.get(other_ctl, 0)) - 1)
+                    heapq.heappush(heap, (-max(train_cover.get(other_ctl, 0), test_cover.get(other_ctl, 0)), other_ctl))
+            return
+        if anchor_idx not in test_unmet:
+            return
+        test_unmet.remove(anchor_idx)
+        for other_ctl in test_anchor_to_shared.get(anchor_idx, []):
+            if assigned_side.get(other_ctl) is None:
+                test_cover[other_ctl] = max(0, int(test_cover.get(other_ctl, 0)) - 1)
+                heapq.heappush(heap, (-max(train_cover.get(other_ctl, 0), test_cover.get(other_ctl, 0)), other_ctl))
+
+    while len(heap) > 0:
+        neg_score, ctl_id = heapq.heappop(heap)
+        if ctl_id in assigned_side:
+            continue
+        gain_train = int(train_cover.get(ctl_id, 0))
+        gain_test = int(test_cover.get(ctl_id, 0))
+        current_score = max(gain_train, gain_test)
+        if -neg_score != current_score:
+            heapq.heappush(heap, (-current_score, ctl_id))
+            continue
+        if current_score <= 0:
+            break
+        if gain_train > gain_test:
+            side = "train"
+        elif gain_test > gain_train:
+            side = "test"
+        elif len(train_allowed) < len(test_allowed):
+            side = "train"
+        elif len(test_allowed) < len(train_allowed):
+            side = "test"
+        else:
+            side = "train" if rng.random() < 0.5 else "test"
+        assigned_side[ctl_id] = side
+        if side == "train":
+            train_allowed.add(ctl_id)
+            for anchor_idx in train_shared_to_anchors.get(ctl_id, []):
+                _resolve_anchor("train", anchor_idx)
+        else:
+            test_allowed.add(ctl_id)
+            for anchor_idx in test_shared_to_anchors.get(ctl_id, []):
+                _resolve_anchor("test", anchor_idx)
+
+    remaining = [ctl_id for ctl_id in shared if ctl_id not in assigned_side]
+    rng.shuffle(remaining)
+    for ctl_id in remaining:
+        if len(train_allowed) <= len(test_allowed):
+            train_allowed.add(ctl_id)
+        else:
+            test_allowed.add(ctl_id)
+
+    train_filtered = [[c for c in cands if c in train_allowed] for cands in train_candidates]
+    test_filtered = [[c for c in cands if c in test_allowed] for cands in test_candidates]
+    train_empty = sum(1 for cands in train_filtered if len(cands) == 0)
+    test_empty = sum(1 for cands in test_filtered if len(cands) == 0)
+    stats = {
+        "train_ctl_ids": len(train_allowed),
+        "test_ctl_ids": len(test_allowed),
+        "shared_ctl_ids": len(train_used & test_used),
+        "train_empty_anchors": int(train_empty),
+        "test_empty_anchors": int(test_empty),
+    }
+    return train_allowed, test_allowed, train_filtered, test_filtered, stats
+
+
+def filter_ctl_pool(data, allowed_ctl_ids):
+    ctl_pool_ids = np.asarray(data["ctl_pool_ids"], dtype=object)
+    ctl_pool_expr = np.asarray(data["ctl_pool_expr"], dtype=np.float32)
+    allowed = set([str(x) for x in allowed_ctl_ids])
+    keep_idx = [i for i, cid in enumerate(ctl_pool_ids.tolist()) if str(cid) in allowed]
+    if len(keep_idx) == 0:
+        num_genes = int(ctl_pool_expr.shape[1]) if ctl_pool_expr.ndim == 2 and ctl_pool_expr.shape[1] > 0 else int(data["input_dim"])
+        return np.asarray([], dtype=object), np.zeros((0, num_genes), dtype=np.float32)
+    keep_idx = np.asarray(keep_idx, dtype=np.int32)
+    return ctl_pool_ids[keep_idx], ctl_pool_expr[keep_idx]
+
+
+def materialize_paired_dataset(data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
+    valid_pairing_modes = {"multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"}
+    if pairing_mode not in valid_pairing_modes:
+        raise ValueError(f"未知 pairing_mode: {pairing_mode}")
+
+    anchor_X_trt = np.asarray(data["anchor_X_trt"], dtype=np.float32)
+    anchor_X_drug = np.asarray(data["anchor_X_drug"], dtype=np.float32)
+    anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
+    anchor_trt_distil_ids = np.asarray(data["anchor_trt_distil_ids"], dtype=str)
+    anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
+    anchor_batch_ids = np.asarray(data["anchor_batch_ids"], dtype=str)
+    anchor_det_plate_ids = np.asarray(data["anchor_det_plate_ids"], dtype=str)
+    anchor_drug_fp_idx = np.asarray(data["anchor_drug_fp_idx"], dtype=np.int32)
+    anchor_drug_has_target = np.asarray(data["anchor_drug_has_target"], dtype=np.float32)
+    anchor_drug_has_fp = np.asarray(data["anchor_drug_has_fp"], dtype=np.float32)
+    anchor_ctl_candidates = data["anchor_ctl_candidates"]
+    ctl_pool_ids = np.asarray(data["ctl_pool_ids"], dtype=str)
+    ctl_pool_expr = np.asarray(data["ctl_pool_expr"], dtype=np.float32)
+    ctl_id_to_idx = {str(cid): i for i, cid in enumerate(ctl_pool_ids.tolist())}
+    drug_fp_table = data.get("drug_fp_table")
+    drug_fp_table = None if drug_fp_table is None else np.asarray(drug_fp_table, dtype=np.float32)
+    anchor_X_fingerprint = data.get("anchor_X_fingerprint")
+    anchor_X_fingerprint = None if anchor_X_fingerprint is None else np.asarray(anchor_X_fingerprint, dtype=np.float32)
+
+    rng = np.random.default_rng(int(seed))
+    n_ctl_per_trt = int(ctl_residual_pool_size) if int(ctl_residual_pool_size) > 0 else 3
+
+    pair_anchor_idx = []
+    pair_ctl_ids = []
+
+    if pairing_mode == "multi_trt_multi_ctl":
+        for i, ctl_candidates in enumerate(anchor_ctl_candidates):
+            if len(ctl_candidates) == 0:
+                continue
+            replace = len(ctl_candidates) < n_ctl_per_trt
+            sampled_ctl = rng.choice(np.asarray(ctl_candidates, dtype=object), size=n_ctl_per_trt, replace=replace)
+            for ctl_id in sampled_ctl.tolist():
+                pair_anchor_idx.append(i)
+                pair_ctl_ids.append(str(ctl_id))
+    elif pairing_mode == "unique_trt_reuse_ctl":
+        for i, ctl_candidates in enumerate(anchor_ctl_candidates):
+            if len(ctl_candidates) == 0:
+                continue
+            ctl_id = str(rng.choice(np.asarray(ctl_candidates, dtype=object)))
+            pair_anchor_idx.append(i)
+            pair_ctl_ids.append(ctl_id)
+    else:
+        order = list(range(len(anchor_ctl_candidates)))
+        rng.shuffle(order)
+        order.sort(key=lambda i: len(anchor_ctl_candidates[i]))
+        used_ctl_ids = set()
+        skipped_due_to_unique_ctl = 0
+        for i in order:
+            available = [c for c in anchor_ctl_candidates[i] if c not in used_ctl_ids]
+            if len(available) == 0:
+                skipped_due_to_unique_ctl += 1
+                continue
+            ctl_id = str(rng.choice(np.asarray(available, dtype=object)))
+            used_ctl_ids.add(ctl_id)
+            pair_anchor_idx.append(i)
+            pair_ctl_ids.append(ctl_id)
+        print(f"unique_trt_unique_ctl: 因 ctl 不可重复而跳过 {skipped_due_to_unique_ctl} 个 trt")
+
+    if len(pair_anchor_idx) == 0:
+        num_genes = int(anchor_X_trt.shape[1])
+        fp_width = 0 if drug_fp_table is None else int(drug_fp_table.shape[1])
+        return {
+            "X_ctl": np.zeros((0, num_genes), dtype=np.float32),
+            "y_delta": np.zeros((0, num_genes), dtype=np.float32),
+            "X_drug": np.zeros((0, anchor_X_drug.shape[1]), dtype=np.float32),
+            "X_fingerprint": np.zeros((0, fp_width), dtype=np.float32) if fp_width > 0 else None,
+            "drug_fp_idx": np.zeros((0,), dtype=np.int32),
+            "drug_has_target": np.zeros((0,), dtype=np.float32),
+            "drug_has_fp": np.zeros((0,), dtype=np.float32),
+            "drug_ids": np.asarray([], dtype=object),
+            "trt_distil_ids": np.asarray([], dtype=object),
+            "ctl_distil_ids": np.asarray([], dtype=object),
+            "cell_names": np.asarray([], dtype=object),
+            "batch_ids": np.asarray([], dtype=object),
+            "det_plate_ids": np.asarray([], dtype=object),
+            "pairing_mode": pairing_mode,
+        }
+
+    pair_anchor_idx = np.asarray(pair_anchor_idx, dtype=np.int32)
+    pair_ctl_ids = np.asarray(pair_ctl_ids, dtype=object)
+    ctl_rows = [ctl_id_to_idx[str(cid)] for cid in pair_ctl_ids.tolist()]
+    X_ctl = ctl_pool_expr[np.asarray(ctl_rows, dtype=np.int32)]
+    X_trt = anchor_X_trt[pair_anchor_idx]
+    y_delta = X_trt - X_ctl
+    paired = {
+        "X_ctl": X_ctl.astype(np.float32),
+        "y_delta": y_delta.astype(np.float32),
+        "X_drug": anchor_X_drug[pair_anchor_idx].astype(np.float32),
+        "X_fingerprint": None,
+        "drug_fp_idx": anchor_drug_fp_idx[pair_anchor_idx].astype(np.int32),
+        "drug_has_target": anchor_drug_has_target[pair_anchor_idx].astype(np.float32),
+        "drug_has_fp": anchor_drug_has_fp[pair_anchor_idx].astype(np.float32),
+        "drug_ids": anchor_drug_ids[pair_anchor_idx].astype(object),
+        "trt_distil_ids": anchor_trt_distil_ids[pair_anchor_idx].astype(object),
+        "ctl_distil_ids": pair_ctl_ids.astype(object),
+        "cell_names": anchor_cell_names[pair_anchor_idx].astype(object),
+        "batch_ids": anchor_batch_ids[pair_anchor_idx].astype(object),
+        "det_plate_ids": anchor_det_plate_ids[pair_anchor_idx].astype(object),
+        "pairing_mode": pairing_mode,
+    }
+    if anchor_X_fingerprint is not None:
+        paired["X_fingerprint"] = anchor_X_fingerprint[pair_anchor_idx].astype(np.float32)
+    elif drug_fp_table is not None:
+        fp_idx = paired["drug_fp_idx"]
+        materialize_limit_mb = 512
+        need_bytes = int(len(fp_idx)) * int(drug_fp_table.shape[1]) * 4
+        if need_bytes <= int(materialize_limit_mb) * 1024 * 1024:
+            paired["X_fingerprint"] = drug_fp_table[fp_idx]
+    return paired
+
+
+def build_scheme_a_split_data(
+    data,
+    split_mode,
+    test_frac,
+    seed=42,
+    train_pairing_mode="multi_trt_multi_ctl",
+    train_ctl_pair_k=3,
+    test_pairing_mode="unique_trt_reuse_ctl",
+):
+    anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
+    anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
+    train_mask, test_mask = build_pair_split_masks(split_mode, anchor_drug_ids, anchor_cell_names, test_frac, seed=seed)
+    train_anchor = subset_anchor_data(data, np.where(train_mask)[0])
+    test_anchor = subset_anchor_data(data, np.where(test_mask)[0])
+    train_allowed_ctl, test_allowed_ctl, train_candidates, test_candidates, ctl_stats = isolate_ctl_pools(
+        train_anchor["anchor_ctl_candidates"],
+        test_anchor["anchor_ctl_candidates"],
+        seed=seed,
+    )
+    train_anchor["anchor_ctl_candidates"] = train_candidates
+    test_anchor["anchor_ctl_candidates"] = test_candidates
+    train_anchor["ctl_pool_ids"], train_anchor["ctl_pool_expr"] = filter_ctl_pool(data, train_allowed_ctl)
+    test_anchor["ctl_pool_ids"], test_anchor["ctl_pool_expr"] = filter_ctl_pool(data, test_allowed_ctl)
+    print(
+        "Isolated ctl pools | "
+        f"shared_before={ctl_stats['shared_ctl_ids']} "
+        f"train_ctl={ctl_stats['train_ctl_ids']} "
+        f"test_ctl={ctl_stats['test_ctl_ids']} "
+        f"train_empty={ctl_stats['train_empty_anchors']} "
+        f"test_empty={ctl_stats['test_empty_anchors']}"
+    )
+    train_data = materialize_paired_dataset(
+        train_anchor,
+        pairing_mode=str(train_pairing_mode),
+        ctl_residual_pool_size=int(train_ctl_pair_k),
+        seed=int(seed),
+    )
+    test_data = materialize_paired_dataset(
+        test_anchor,
+        pairing_mode=str(test_pairing_mode),
+        ctl_residual_pool_size=1,
+        seed=int(seed) + 1,
+    )
+    return train_data, test_data, train_mask, test_mask
 
 
 def visualize_tf_graph(node_list, edge_index,
@@ -1023,7 +1215,8 @@ def load_rfa_data(
     filter_time=24, # default 24h
     filter_dose=10,  # default 10uM
     cell_lines=None,
-    ctl_residual_pool_size=0
+    ctl_residual_pool_size=0,
+    pairing_mode="multi_trt_multi_ctl",
 ):
     """
     加载 RFA-GNN 专用数据 (直接从 Level 3 CSV 加载并对齐):
@@ -1035,10 +1228,15 @@ def load_rfa_data(
     Args:
         cell_lines: 指定要保留的细胞系 (cell_iname)。None 表示不过滤；传入 str 或 list[str]。
         ctl_residual_pool_size: 每个 trt 随机配对的 ctl 数量（优先同 cell/batch）。<=0 时默认 3。
+        pairing_mode:
+            - "multi_trt_multi_ctl": 旧逻辑，一个 trt 可配多个 ctl，ctl 也可重复
+            - "unique_trt_reuse_ctl": 每个 trt 仅配 1 个 ctl，ctl 可重复
+            - "unique_trt_unique_ctl": 每个 trt 仅配 1 个 ctl，且 ctl 全局不重复
     """
     
     print(f"正在加载 RFA 数据 (Landmark Mode: {use_landmark_genes})...")
     print(f"CSV路径: CTL={ctl_path}, TRT={trt_path}")
+    print(f"配对模式: {pairing_mode}")
     
     # 1. 加载基因列表
     target_genes = [] 
@@ -1191,16 +1389,7 @@ def load_rfa_data(
     df_ctl_temp['cell_iname'] = [ctl_id_to_cell.get(idx, 'Unknown') for idx in df_ctl_temp.index]
     df_ctl_temp['bead_batch'] = [ctl_id_to_batch.get(idx, 'Unknown') for idx in df_ctl_temp.index]
     
-    # Groupby mean
-    # grouped = df_ctl_temp.groupby('cell_iname')
-    # for cell, group in grouped:
-    #     # 去掉 cell_iname 列
-    #     mean_vec = group.drop(columns=['cell_iname', 'bead_batch']).mean(axis=0).values.astype(np.float32)
-    #     cell_mean_dict[cell] = mean_vec
-        
-    # 全局平均 (Fallback)
-    #global_mean = df_ctl_temp.drop(columns=['cell_iname', 'bead_batch']).mean(axis=0).values.astype(np.float32)
-    #print(f"已计算 {len(cell_mean_dict)} 个细胞系的基准表达谱。")
+
 
     # 4. 处理 Treatment 样本
     trt_rows = siginfo[(siginfo['pert_type'] == 'trt_cp') & (siginfo["is_hiq"] == 1)]
@@ -1234,7 +1423,7 @@ def load_rfa_data(
     if df_trt_data is None:
         raise Exception("  加载 Treatment 数据失败！")
 
-    # 6. 多对一配对：每个 trt 随机配多个 ctl（同 cell/batch），每个都生成一条 delta
+    # 6. 构建可 split 的 trt anchor，并保留 ctl 候选
     ctl_index = pd.DataFrame({
         "distil_id": df_ctl_all.index.astype(str),
         "cell_iname": [ctl_id_to_cell.get(idx, "Unknown") for idx in df_ctl_all.index.astype(str)],
@@ -1242,21 +1431,12 @@ def load_rfa_data(
         "det_plate": [ctl_id_to_det_plate.get(idx, "Unknown") for idx in df_ctl_all.index.astype(str)],
     }).drop_duplicates()
 
-    n_ctl_per_trt = int(ctl_residual_pool_size) if int(ctl_residual_pool_size) > 0 else 3
-    rng = np.random.default_rng(42)
-
-    final_trt_list = []
-    final_ctl_list = []
-    final_pert_ids = []
-    final_cell_names = []
-    final_batch_names = []
-    final_det_plate_names = []
-    final_trt_distil_ids = []
-    final_ctl_distil_ids = []
+    valid_pairing_modes = {"multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"}
+    if pairing_mode not in valid_pairing_modes:
+        raise ValueError(f"未知 pairing_mode: {pairing_mode}")
 
     trt_info_map = {s['distil_id']: s for s in trt_samples}
-    all_ctl_ids_list = ctl_index["distil_id"].astype(str).tolist()
-
+    trt_entries = []
     for trt_id, row in df_trt_data.iterrows():
         if trt_id not in trt_info_map:
             continue
@@ -1264,7 +1444,6 @@ def load_rfa_data(
         cell = info['cell_iname']
         batch = str(info.get('bead_batch', 'Unknown'))
         det_plate = str(info.get('det_plate', 'Unknown'))
-        # trt中的样本没有在sign info中找到对应的，直接过滤
         if det_plate == 'Unknown' or batch == 'Unknown':
             continue
         ctl_candidates = ctl_index[
@@ -1279,80 +1458,70 @@ def load_rfa_data(
             ]['distil_id'].astype(str).tolist()
         if len(ctl_candidates) == 0:
             continue
+        trt_entries.append({
+            "trt_id": str(trt_id),
+            "x_trt": row.values.astype(np.float32),
+            "info": info,
+            "cell": cell,
+            "batch": batch,
+            "det_plate": det_plate,
+            "ctl_candidates": ctl_candidates,
+        })
+    print(f"可用于 split-before-match 的 trt anchors: {len(trt_entries)}")
 
-        replace = len(ctl_candidates) < n_ctl_per_trt
-        # 数量不足可以重复选择
-        sampled_ctl = rng.choice(ctl_candidates, size=n_ctl_per_trt, replace=replace)
-        x_trt = row.values.astype(np.float32)
-        for ctl_id in sampled_ctl:
-            if ctl_id not in df_ctl_all.index:
-                continue
-            x_ctl = df_ctl_all.loc[ctl_id].values.astype(np.float32)
-            final_trt_list.append(x_trt)
-            final_ctl_list.append(x_ctl)
-            final_pert_ids.append(info['pert_id'])
-            final_cell_names.append(cell)
-            final_batch_names.append(batch)
-            final_det_plate_names.append(det_plate)
-            final_trt_distil_ids.append(str(trt_id))
-            final_ctl_distil_ids.append(str(ctl_id))
-
-    X_trt_arr = np.array(final_trt_list, dtype=np.float32)
-    X_ctl_arr = np.array(final_ctl_list, dtype=np.float32)
-    final_batch_names = list(final_batch_names)
-    final_det_plate_names = list(final_det_plate_names)
-
-    print(f"数据组装完成: {X_trt_arr.shape}")
     # 7. 加载药物靶点 (Target Encoding) & 指纹 (Fingerprints)
     print(f"正在加载药物靶点: {drug_target_path}")
-    # drug to target idx
     drug_to_targets = _load_drug_target(drug_target_path,full_symbol_to_entrez,gene_to_idx)
     print(f"已加载 {len(drug_to_targets)} 个药物靶点。")
 
     drug_to_fp, fp_dim = _load_drug_fingerprint(fingerprint_path)
     print(f"已加载 {len(drug_to_fp)} 个药物指纹，维度: {fp_dim}。")
 
+    num_anchor = len(trt_entries)
+    if num_anchor > 0:
+        anchor_X_trt = np.stack([e["x_trt"] for e in trt_entries], axis=0).astype(np.float32)
+    else:
+        anchor_X_trt = np.zeros((0, num_genes), dtype=np.float32)
+    anchor_drug_ids = np.asarray([str(e["info"]["pert_id"]) for e in trt_entries], dtype=object)
+    anchor_trt_distil_ids = np.asarray([str(e["trt_id"]) for e in trt_entries], dtype=object)
+    anchor_cell_names = np.asarray([str(e["cell"]) for e in trt_entries], dtype=object)
+    anchor_batch_ids = np.asarray([str(e["batch"]) for e in trt_entries], dtype=object)
+    anchor_det_plate_ids = np.asarray([str(e["det_plate"]) for e in trt_entries], dtype=object)
+    anchor_ctl_candidates = [list(e["ctl_candidates"]) for e in trt_entries]
 
-    num_samples = len(final_pert_ids)
-    X_target = np.zeros((num_samples, num_genes), dtype=np.float32)
-    has_target = np.zeros((num_samples,), dtype=bool)
-    has_fp = np.zeros((num_samples,), dtype=bool)
-
-    for i, pid in enumerate(final_pert_ids):
+    anchor_X_drug = np.zeros((num_anchor, num_genes), dtype=np.float32)
+    anchor_has_target = np.zeros((num_anchor,), dtype=bool)
+    anchor_has_fp = np.zeros((num_anchor,), dtype=bool)
+    for i, pid in enumerate(anchor_drug_ids.tolist()):
         if pid in drug_to_targets:
             indices = list(drug_to_targets[pid])
-            X_target[i, indices] = 1.0
-            has_target[i] = True
+            anchor_X_drug[i, indices] = 1.0
+            anchor_has_target[i] = True
         if fp_dim > 0 and pid in drug_to_fp:
-            has_fp[i] = True
+            anchor_has_fp[i] = True
 
-    keep_mask = has_target & has_fp
-    print(f"  保留 {np.sum(keep_mask)} 个样本 (必须同时有 targets 与 fingerprints)")
-    print(f"  有 targets 的样本数: {np.sum(has_target)}")
-    print(f"  有 fingerprints 的样本数: {np.sum(has_fp)}")
+    keep_mask = anchor_has_target & anchor_has_fp
+    print(f"  保留 {np.sum(keep_mask)} 个 trt anchors (必须同时有 targets 与 fingerprints)")
+    print(f"  有 targets 的 anchors: {np.sum(anchor_has_target)}")
+    print(f"  有 fingerprints 的 anchors: {np.sum(anchor_has_fp)}")
 
-    
     if not np.all(keep_mask):
-        print(f"过滤掉 {np.sum(~keep_mask)} 个信息不全(Target/FP)的样本...")
-        X_trt_arr = X_trt_arr[keep_mask]
-        X_ctl_arr = X_ctl_arr[keep_mask]
-        X_target = X_target[keep_mask]
-        has_target = has_target[keep_mask]
-        has_fp = has_fp[keep_mask]
-        final_pert_ids = [final_pert_ids[i] for i in range(len(final_pert_ids)) if keep_mask[i]]
-        final_cell_names = [final_cell_names[i] for i in range(len(final_cell_names)) if keep_mask[i]]
-        final_batch_names = [final_batch_names[i] for i in range(len(final_batch_names)) if keep_mask[i]]
-        final_det_plate_names = [final_det_plate_names[i] for i in range(len(final_det_plate_names)) if keep_mask[i]]
-        final_trt_distil_ids = [final_trt_distil_ids[i] for i in range(len(final_trt_distil_ids)) if keep_mask[i]]
-        final_ctl_distil_ids = [final_ctl_distil_ids[i] for i in range(len(final_ctl_distil_ids)) if keep_mask[i]]
+        print(f"过滤掉 {np.sum(~keep_mask)} 个信息不全(Target/FP)的 trt anchors...")
+        keep_idx = np.where(keep_mask)[0]
+        anchor_X_trt = anchor_X_trt[keep_idx]
+        anchor_X_drug = anchor_X_drug[keep_idx]
+        anchor_drug_ids = anchor_drug_ids[keep_idx]
+        anchor_trt_distil_ids = anchor_trt_distil_ids[keep_idx]
+        anchor_cell_names = anchor_cell_names[keep_idx]
+        anchor_batch_ids = anchor_batch_ids[keep_idx]
+        anchor_det_plate_ids = anchor_det_plate_ids[keep_idx]
+        anchor_has_target = anchor_has_target[keep_idx]
+        anchor_has_fp = anchor_has_fp[keep_idx]
+        anchor_ctl_candidates = [anchor_ctl_candidates[int(i)] for i in keep_idx.tolist()]
 
-    print(f"最终有效数据集: {X_trt_arr.shape}")
+    print(f"最终有效 trt anchors: {anchor_X_trt.shape}")
 
-    drug_fp_table = None
-    drug_fp_idx = None
-    X_fingerprint = None
-    # drug_fp_table 加入两个indicator 一列 是否有target， 一列 是否有fingerprint
-    uniq_drugs = list(dict.fromkeys([str(x) for x in final_pert_ids]))
+    uniq_drugs = list(dict.fromkeys([str(x) for x in anchor_drug_ids.tolist()]))
     drug2row = {d: i for i, d in enumerate(uniq_drugs)}
     fp_width = int(fp_dim) + 2
     drug_fp_table = np.zeros((len(uniq_drugs), fp_width), dtype=np.float32)
@@ -1363,43 +1532,80 @@ def load_rfa_data(
             drug_fp_table[r, fp_dim] = 1.0
         if d in drug_to_targets:
             drug_fp_table[r, fp_dim + 1] = 1.0
-    drug_fp_idx = np.asarray([drug2row[str(pid)] for pid in final_pert_ids], dtype=np.int32)
+    anchor_drug_fp_idx = np.asarray([drug2row[str(pid)] for pid in anchor_drug_ids.tolist()], dtype=np.int32) if len(anchor_drug_ids) > 0 else np.zeros((0,), dtype=np.int32)
 
+    anchor_X_fingerprint = None
     materialize_limit_mb = 512
-    need_bytes = int(len(final_pert_ids)) * int(fp_width) * 4
-    if need_bytes <= int(materialize_limit_mb) * 1024 * 1024:
-        X_fingerprint = drug_fp_table[drug_fp_idx]
+    need_bytes_anchor = int(len(anchor_drug_ids)) * int(fp_width) * 4
+    if len(anchor_drug_ids) > 0 and need_bytes_anchor <= int(materialize_limit_mb) * 1024 * 1024:
+        anchor_X_fingerprint = drug_fp_table[anchor_drug_fp_idx]
 
-    # 8. 组装返回字典
-    # X_ctl 包含 Mean Control Expr 和 Drug Target
-    #X_node = np.stack([X_ctl_arr, X_target], axis=-1).astype(np.float32)
-    
-    # 计算 Delta
-    np.subtract(X_trt_arr, X_ctl_arr, out=X_trt_arr)
-    y_delta = X_trt_arr
-    
-    data = {
-        'X_ctl': X_ctl_arr,      # (N, Genes, 2)
-        'y_delta': y_delta,     # (N, Genes) [Delta]
-        'X_drug': X_target,   
-        'X_fingerprint': X_fingerprint,
-        'drug_fp_table': drug_fp_table,
-        'drug_fp_idx': drug_fp_idx,
-        'drug_has_target': has_target.astype(np.float32),
-        'drug_has_fp': has_fp.astype(np.float32),
-        'drug_ids': final_pert_ids,
-        'trt_distil_ids': final_trt_distil_ids,
-        'ctl_distil_ids': final_ctl_distil_ids,
-        'cell_names': final_cell_names, # 新增: 返回细胞系名称
-        'batch_ids': final_batch_names,
-        'det_plate_ids': final_det_plate_names,
-        'input_dim': num_genes,
-        'node_feature_dim': 2,
-        'target_genes': target_genes,
-        'loss_mask': np.ones((1, num_genes), dtype=np.float32),
-        'symbol_to_entrez':full_symbol_to_entrez
+    used_ctl_ids = []
+    seen_ctl = set()
+    for candidates in anchor_ctl_candidates:
+        for ctl_id in candidates:
+            ctl_id = str(ctl_id)
+            if ctl_id in seen_ctl or ctl_id not in df_ctl_all.index:
+                continue
+            seen_ctl.add(ctl_id)
+            used_ctl_ids.append(ctl_id)
+    if len(used_ctl_ids) > 0:
+        ctl_pool_expr = df_ctl_all.loc[used_ctl_ids].values.astype(np.float32)
+        ctl_pool_ids = np.asarray(used_ctl_ids, dtype=object)
+    else:
+        ctl_pool_expr = np.zeros((0, num_genes), dtype=np.float32)
+        ctl_pool_ids = np.asarray([], dtype=object)
+
+    base_data = {
+        "anchor_X_trt": anchor_X_trt,
+        "anchor_X_drug": anchor_X_drug,
+        "anchor_X_fingerprint": anchor_X_fingerprint,
+        "anchor_drug_fp_idx": anchor_drug_fp_idx,
+        "anchor_drug_has_target": anchor_has_target.astype(np.float32),
+        "anchor_drug_has_fp": anchor_has_fp.astype(np.float32),
+        "anchor_drug_ids": anchor_drug_ids,
+        "anchor_trt_distil_ids": anchor_trt_distil_ids,
+        "anchor_cell_names": anchor_cell_names,
+        "anchor_batch_ids": anchor_batch_ids,
+        "anchor_det_plate_ids": anchor_det_plate_ids,
+        "anchor_ctl_candidates": anchor_ctl_candidates,
+        "ctl_pool_ids": ctl_pool_ids,
+        "ctl_pool_expr": ctl_pool_expr,
+        "drug_fp_table": drug_fp_table,
+        "input_dim": num_genes,
+        "node_feature_dim": 2,
+        "target_genes": target_genes,
+        "loss_mask": np.ones((1, num_genes), dtype=np.float32),
+        "symbol_to_entrez": full_symbol_to_entrez,
+        "pairing_mode": pairing_mode,
     }
-    
+
+    paired = materialize_paired_dataset(
+        base_data,
+        pairing_mode=pairing_mode,
+        ctl_residual_pool_size=int(ctl_residual_pool_size),
+        seed=42,
+    )
+    print(f"数据组装完成: {paired['X_ctl'].shape}")
+
+    data = dict(base_data)
+    data.update(
+        {
+            "X_ctl": paired["X_ctl"],
+            "y_delta": paired["y_delta"],
+            "X_drug": paired["X_drug"],
+            "X_fingerprint": paired["X_fingerprint"],
+            "drug_fp_idx": paired["drug_fp_idx"],
+            "drug_has_target": paired["drug_has_target"],
+            "drug_has_fp": paired["drug_has_fp"],
+            "drug_ids": paired["drug_ids"],
+            "trt_distil_ids": paired["trt_distil_ids"],
+            "ctl_distil_ids": paired["ctl_distil_ids"],
+            "cell_names": paired["cell_names"],
+            "batch_ids": paired["batch_ids"],
+            "det_plate_ids": paired["det_plate_ids"],
+        }
+    )
     return data
 
 

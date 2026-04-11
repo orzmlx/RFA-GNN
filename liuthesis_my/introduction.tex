@@ -2,116 +2,103 @@
 \chapter{Introduction}
 
 \section{Background}
-In 2025, AstraZeneca disclosed a failure case known as “compound 12”, which was once considered a promising lead candidate but failed before entering human trials. In animal studies, the compound caused severe muscle damage and wasting. Subsequent investigations suggested that although the drug successfully engaged its intended target, the KRAS protein, it also exhibited off target interactions that led to unexpected toxic effects~\cite{DrugHunter_2025}. This example illustrates why predicting drug effects is challenging. Hitting the intended target does not necessarily mean that a drug will be safe, because unintended interactions and downstream network perturbations can still produce harmful biological responses.
+\noindent Drug discovery is slow, expensive, and uncertain. Many candidate drugs fail before they reach the market~\cite{cbo2021rnd}. One reason is that drug effects are hard to predict. A drug may bind to one target protein, but the final response depends on many connected genes, proteins, and signaling pathways inside the cell~\cite{Brown_2025, AnnualReviews_2025}. These systems are highly connected. This makes it hard to predict how a drug changes the state of a cell. Better prediction can therefore help researchers screen compounds earlier and focus on more promising candidates.
 
-Drug discovery is challenging. Even top research organizations often fail in drug development, and only about 12\% of drugs that enter clinical trials are ultimately approved~\cite{cbo2021rnd}. One major reason is the complexity of biology. A compound may affect its intended target, but the downstream cellular response can still be difficult to predict because signals spread through interconnected networks of genes and proteins and depend on the cellular context~\cite{Brown_2025, AnnualReviews_2025}, This uncertainty involves two linked challenges, selecting a plausible target and predicting the molecular response after perturbation. This thesis focuses on the second challenge. 
-% We study how to predict changes in gene expression after drug treatment relative to a matched control in a specific cell type, using both experimental perturbation data and prior knowledge about molecular interactions.
-
-
-
-% In practice, a response is often represented by a transcriptional profile, which is a vector of expression changes across many genes. Predicting this profile can support drug development by prioritizing compounds for follow up experiments, suggesting candidate mechanisms, and finding potential risk signatures earlier in candidate selection.
-
-% Gene expression is a common response . A transcriptional profile is a vector of expression values across many genes. In perturbation studies, the response is often defined relative to a baseline profile, such as a matched vehicle control. This view motivates models that treat the cell as a network of interacting genes, where known regulatory relationships constrain how signals can spread from perturbed nodes to downstream genes.
-
-We study how to predict changes in gene expression after drug treatment relative to a matched control in a specific cell type, using both experimental perturbation data and prior knowledge about molecular interactions. Figure~\ref{fig:braf_inhibitor_mechanism} illustrates why this is difficult. The intended mechanism is on target KRAS engagement, but additional off target interactions can propagate through downstream pathways and produce harmful results. This example shows that drug effects cannot be understood by looking at a single target alone. The final cellular response depends on how the drug perturbs the interconnected network of genes and proteins within the cell.
+\noindent The AstraZeneca ``compound 12'' case, reported in 2025, shows this problem clearly. Figure~\ref{fig:compound_12_inhibitor_mechanism} gives a simple illustration. The compound was designed to act on KRAS, but later analysis suggested that it also affected unintended targets and caused toxic effects in animal studies~\cite{DrugHunter_2025}. The case shows an important point. A drug may reach its intended target and still lead to an unwanted outcome. Its effect can spread through a larger molecular system. This thesis studies that broader prediction problem. The goal is to predict how gene expression changes after drug treatment, relative to a matched control, in a specific cell type.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\linewidth]{figures/braf_inhibitor_mechanism.png}
-    \caption{Conceptual illustration of the AstraZeneca ``compound 12'' case. Although the compound is designed to engage KRAS, additional off target effects may propagate through molecular networks and cause adverse outcomes.}
-    \label{fig:braf_inhibitor_mechanism}
+    \includegraphics[width=\linewidth]{figures/compound_12_inhibitor_mechanism.png}
+    \caption{Conceptual illustration of the AstraZeneca ``compound 12'' case. Although the compound targets KRAS, additional off-target effects may spread through molecular networks and cause unwanted outcomes.}
+    \label{fig:compound_12_inhibitor_mechanism}
 \end{figure}
 
 \section{Drug perturbation}
-To specify this prediction problem, we first describe what drug perturbation means. Drug perturbation refers to the process how cells respond to an intervention. When a compound enters a cell, it works by binding to one or more proteins. This interaction can change the function of these proteins, either by activating or inhibiting its activity.
+Drug perturbation means using a drug to change the state of a cell so that the response can be studied. A drug usually starts by binding to one or more target proteins. This event may block a protein, activate it, or change its function in another way. The effect usually does not stop there. The signal can spread through molecular interactions inside the cell and affect many downstream genes.
 
-This first interaction sets off a chain reaction. Inside the cell, the shape of this targeted protein will be altered and  physically touch or stick to a downstream protein, When it makes contact, those downstream proteins also change in turn. One change leads to another and In this way, a message travels from one protein to another, spreading the original effect far beyond the drug’s first target. Eventually, some of these messages reach the nucleus because all genetic instructions are stored there and special proteins called transcription factors will be influenced, they decide which genes are turned on or off. As a consequence, the levels of gene expression are changed.
-
-Gene expression tells us how actively each gene provides instructions for making proteins and its expression level reflects how many copies of these instructions are being produced. These expression changes can be quantified using high-throughput experiment.
+\noindent In this thesis, the cellular response is described through gene expression. Gene expression shows how active each gene is. After drug treatment, some genes become more active and others become less active. Predicting these changes is useful because they give a broad summary of the molecular response in a form that can be measured at scale.
 
 \section{High-throughput experiment}
+\noindent Researchers use high-throughput experiments to study drug perturbations at scale. Figure~\ref{fig:well_plates} shows the basic setup. The idea is simple. Many cell lines are grown in multi-well plates. Many drugs are applied under controlled conditions. Gene expression is measured after treatment. This design makes it possible to compare many perturbations in a standard way.
 
-To model drug effects, we need a data source that links controlled drug perturbation to measure gene expression. The key idea is to compare treated and untreated conditions under similar experimental settings, so that observed differences mainly reflect biological responses to the perturbation rather than technical variation. This requires a standardized experiment with consistent protocol, broad compound coverage, rich metadata for matching controls and process hundreds of samples, genes, or compounds simultaneously in a single run, we call this type of experimental method as high-throughput experiments.
+\noindent This thesis uses the LINCS L1000 dataset. LINCS records gene expression responses for many compounds, cell lines, doses, and treatment times. Each well contains cells under one experimental condition. After treatment, the assay measures 978 landmark genes. The expression of additional genes can then be inferred from these measurements.
 
-In this thesis, our analysis is based on the LINCS L1000 dataset. It is a typical high-throughput experiment that measures gene expression responses for many compounds across different cell lines. Experiments are performed in multipe well plates, where each well contains cells treated with a compound or a control treatment. At a fixed time point after treatment, expression is measured for 978 landmark genes, and expression for additional genes can be inferred computationally.
-
-In each plate, two types of conditions are included:
+\noindent Each plate includes two main types of wells:
 \begin{enumerate}
-    \item \textbf{Treatment wells}:  These receive a specific drug dissolved in DMSO. Each well gets a different drug or a different dose, allowing researchers to test thousands of compounds at once.
-    \item \textbf{Control wells}: These receive only DMSO~\cite{Santos_2003}, the same solvent used to dissolve the drugs, but without any drug. These controls are essential because they show what normal gene activity looks like when no drug is present. 
+    \item \textbf{Treatment wells}: These contain cells exposed to a specific drug, usually dissolved in DMSO.
+    \item \textbf{Control wells}: These contain cells exposed only to DMSO~\cite{Santos_2003}, without the active drug. They provide a reference for the same experimental setting without the drug effect.
 \end{enumerate}
 
-For each treatment profile, we calculate its gene expression response by comparing it to a control sample tested under similar experimental conditions. In addition to expression values, LINCS provides metadata including cell line, dose, time, and batch or plate identifiers. These details are important because experimental conditions can affect the measured results. In our preprocessing pipeline, controls are selected to match treatments by cell line and plate, this help reduce shared technical effects and make the reponse more comparable across experiments.
+\noindent The key comparison is the difference between a treatment well and a matched control well. This comparison helps separate the drug effect from the background state of the cell. A control is useful only when it matches a comparable treatment condition. The dataset therefore records the cell line, drug dose, treatment time, and plate information. These variables matter because the same drug can act differently in different cell types and under different experimental settings.
 
 \begin{figure}[!htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/well_plates.png}
-    \caption{Sketch of the high-throughput well plate experiment, a well refers to the small, separate container shown in the figure that holds cells for individual testing}
+    \caption{Sketch of the high-throughput well plate experiment, adapted from the LINCS L1000 assay description~\cite{l1000_paper}. A well is a small, separate container that holds cells for individual testing.}
     \label{fig:well_plates}
 \end{figure}
 
-
 \section{Prior knowledge of molecular interactions}
-As mentioned, drug response is effected by networks of molecular interactions, if our model predict genes expression without this relationships, it may miss important biological context. so we hope there is a large knowledge database that collecting molecular relationships from different resources and providing structured and integrated information about regulatory and signalling interactions, so that we could use it as prior knowledge graph in our model. OmniPath is one example. It combines interactions from many different sources such as pathway databases, signaling maps and provides directed relationships, sign annotations for stimulation or inhibition when available, It also includes metadata, such as how many databases or publications back up a relationship of interaction. In this thesis, we build a directed interaction network from OmniPath, and map its gene identifiers to match those used in LNCS L10000 dataset.
 
+A second source of information comes from biological knowledge databases. These resources summarize known links among genes and proteins, such as regulation and signaling. This information is useful because drug effects do not come from one target alone. A drug may start from a small set of targets, but the response is shaped by how signals move through the surrounding molecular network.
 
+\noindent OmniPath is one example of such a database. It integrates molecular interaction information from many curated resources and provides directed relationships that can be used to build a graph representation of the cell~\cite{turei2016omnipath}. In this thesis, the OmniPath network is aligned with the genes measured in LINCS L1000. This alignment places prior knowledge and experimental data in the same gene space.
+
+\noindent This combination is central to the thesis. Perturbation data show what changes after treatment. The interaction network gives information about how those changes may spread through the cell. Drug target information marks where the perturbation begins. When these sources are combined, the model can make predictions that are more informed than predictions based on expression data alone.
 
 \section{Aim}
-This thesis addresses the following modelling problem. Given a baseline cellular expression profile, a description of a drug, and a gene interaction graph, can we predict the gene expression change after treatment? This is challenging because the mapping from target engagement to expression change is indirect, depends on cell context, and is affected by incomplete knowledge of mechanisms.
+This thesis studies how to predict gene expression changes after drug perturbation. The input includes the baseline state of the cell, known drug targets, and a molecular interaction network. The motivation is both practical and methodological. If such responses can be predicted more accurately, researchers can screen compounds more efficiently, prioritize follow up experiments, and better understand possible drug mechanisms.
 
-Two types of external information can improve prediction. First, knowledge bases such as OmniPath provide curated gene and protein interactions. Second, compound annotations provide drug targets and chemical fingerprints. This thesis studies how to combine these sources in a graph based model.
+\noindent The main idea is to combine two types of prior information. One is a molecular interaction network from a database such as OmniPath. The other is drug target information that marks where the perturbation begins. This thesis asks whether a graph based model can combine these sources to improve perturbation prediction.
+
 The aims of this thesis are:
 \begin{enumerate}
-    \item To develop a graph neural network model built on the OmniPath gene interaction graph that predicts drug induced expression changes by integrating expression inputs and drug descriptors.
-    \item To evaluate generalization with unseen drug and unseen cell splits, where test drugs or cell lines are not present during training.
-    \item To compare against baselines that do not use a gene interaction graph, and to use ablation tests to quantify the contribution of drug inputs.
+    \item To build a graph neural network (GNN) based on the OmniPath molecular interaction network. This model will predict drug-induced gene expression changes by combining baseline cell data and drug target information.
+    \item To test how well the model works on unseen drugs and unseen cell lines (where test drugs or cells were never seen during training).
+    \item To compare this model with baseline models that do not use a gene network, and to run tests to see how important the drug target information is.
 \end{enumerate}
 
-Among graph neural network variants, graph attention networks (GATs)~\cite{velickovic2018graph} are well suited to noisy biological graphs because they learn weights for neighbour aggregation. These weights can also be inspected as a form of model interpretation, which helps link predictions to candidate regulatory relationships.
+\noindent In our model, the graph represents molecular interactions, and the nodes correspond to the genes measured in the experiment. A graph attention network (GAT)~\cite{velickovic2018graph} is used because it can learn different weights for different neighbours. This is useful when the interaction graph is incomplete or noisy. The learned attention weights can also be inspected as an interpretation signal.
+
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{figures/gene_network_gnn_1.png}
-    \caption{Left: Example of a real gene regulatory network, showing complex connectivity and modular structure. Right: Schematic of a graph neural network (GNN) model, where genes and proteins are represented as nodes and their interactions as edges.}
+    \caption{Left: Example of a real gene network, showing complex connections. Right: A simple drawing of a graph neural network (GNN), where genes and proteins are nodes, and their interactions are edges.}
     \label{fig:gene_network_gnn}
 \end{figure}
+\noindent Figure~\ref{fig:gene_network_gnn} gives a conceptual view of this modelling idea. The molecular network provides the graph structure, and the GNN uses this structure to propagate information from drug targets to downstream genes. The model is evaluated not only on random splits, but also on unseen drugs and unseen cell lines, so that generalization is tested under more realistic conditions.
+
 
 \section{Related works}
-Graph neural networks are now widely used in bioinformatics because many biological systems are naturally described by graphs. A recent review summarizes GNN approaches for single cell omics data and surveys common tasks and model variants~\cite{li2025gnn_sc_review}. These models build on general GNN ideas and architectures such as GCNs, GraphSAGE, and GATs~\cite{scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}.
+Graph neural networks are now widely used in biology because many biological systems can be represented as graphs. A recent review summarizes GNN applications in single cell omics and discusses common architectures such as GCN, GraphSAGE, and GAT~\cite{li2025gnn_sc_review, scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}. These models are useful because each node can update its representation by using both its own features and information from connected neighbours. In biology, this makes them a natural choice for pathways, regulatory links, and other structured molecular systems.
 
-Drug perturbation prediction is supported by large scale resources that measure gene expression under controlled conditions. The LINCS L1000 and Connectivity Map efforts provide gene expression profiles across many compounds and cell lines~\cite{l1000_paper}. These datasets enable supervised learning of drug induced expression changes. At the same time, they highlight key challenges, including context dependence, measurement noise, and limited coverage of cell models.
+\noindent Several studies have shown the value of graph based learning in perturbation biology. GEARS uses a gene relationship graph to predict responses to genetic perturbations in single cell data~\cite{roohani2023gears}. Cellograph models multi condition single cell datasets with graph based learning~\cite{shahir2024cellograph}. Evans et al. also study graph structured neural networks for perturbation biology more broadly~\cite{evans2024gsnn}. These studies focus on different data types and tasks, but they support the same basic idea. Graph structure can help connect an intervention to downstream molecular changes.
 
-Several approaches use supervised learning without explicit interaction graphs. DeepCOP~\cite{woo2020deepcop} uses a multilayer perceptron with drug descriptors to predict gene regulation effects. This design is simple and scalable, and it serves as a strong baseline. It treats genes as independent outputs and it does not use known molecular connections among genes and proteins.
+\noindent Another line of work predicts drug effects without an explicit biological interaction graph. Large resources such as LINCS L1000 and Connectivity Map make this possible because they provide gene expression responses for many compounds and cell lines~\cite{l1000_paper}. DeepCOP~\cite{woo2020deepcop} is one example. It uses a multilayer perceptron and drug information to predict gene regulation effects. This type of model is simple and scalable, and it provides a strong baseline. Still, it treats genes as separate outputs and does not use known molecular links among genes and proteins.
 
-Another line of work focuses on drug representation and drug sensitivity prediction. tCNNS~\cite{liu2019tcnns} encodes drugs from SMILES strings and uses cell line features to predict responses. GraphDRP~\cite{nguyen2020graphdrp} represents drugs as molecular graphs and predicts IC50 values~\cite{ic50_review_2015}. These models target drug sensitivity endpoints and they emphasize chemical structure. They do not model a gene interaction graph that links drug targets to downstream transcriptional changes.
+\noindent A different line of work uses prior biological knowledge more directly. Regulation Flow Analysis models how perturbation signals may move through a curated interaction network and uses this structure to infer possible mechanisms~\cite{roca2025rfa}. This kind of method is attractive because it is biologically interpretable. Its limit is that the propagation rule is largely fixed by the network and does not learn directly from large perturbation datasets. By contrast, data driven graph neural networks can learn how strongly information should move while still using the network structure.
 
-Knowledge based and graph informed methods aim to capture how perturbation effects propagate through molecular networks. Regulation Flow Analysis uses curated interaction data to infer candidate mechanisms from large knowledge resources~\cite{roca2025rfa}. Graph structured models have also been proposed for drug response tasks that use pathway or regulatory structure~\cite{wang2022graphgrp, kim2021gcn_drug_response}. These studies support the idea that molecular interactions can act as a useful inductive bias when the label signal is noisy or indirect.
+\noindent Some recent studies combine graph structure with supervised prediction for drug response related tasks~\cite{wang2022graphgrp, kim2021gcn_drug_response}. These studies suggest that molecular networks can provide a useful inductive bias when labels are noisy or when the response follows many indirect molecular steps. They also show that graph quality matters. Curated resources such as OmniPath~\cite{turei2016omnipath} are therefore useful because they provide directed interactions and sign information for signal propagation.
 
-Graph based learning has been used for perturbation prediction in single cell settings. GEARS uses a gene relationship graph to predict responses to genetic perturbations in single cell data~\cite{roohani2023gears}. Cellograph models multi condition single cell datasets with graph based learning~\cite{shahir2024cellograph}. Recent work also explores graph structured neural networks for perturbation biology more broadly~\cite{evans2024gsnn}. This literature motivates using graph neural networks to connect perturbations to downstream molecular effects through structured interactions.
-
-The graph itself can represent different biological entities and relations. Single cell studies often use cell cell graphs, cell gene graphs, or gene gene graphs, depending on the task and the data type~\cite{li2025gnn_sc_review}. In this thesis, the graph represents molecular interactions and nodes correspond to genes that are aligned to the expression measurement. The modelling assumption is that network connectivity provides a useful approximation to potential information flow from targets to downstream genes.
-
-Interpretation is another motivation for using graph based models. In many drug discovery settings it is not enough to predict an outcome. It is also useful to suggest plausible routes that connect a perturbation to a response. Explainable graph models aim to highlight relevant substructures and provide human readable summaries of model behaviour~\cite{wang2025xgdp}. Attention in GATs provides a practical way to inspect which edges are weighted more strongly during neighbour aggregation.
-
-Evaluation practices also vary across related work. Many benchmarks focus on performance in random splits. In perturbation prediction, it is important to test generalization to unseen drugs and new cellular contexts. Software frameworks and benchmarks for drug response prediction provide useful comparisons across models and datasets~\cite{jiang2024deepdr}.
-
-This thesis studies drug induced transcriptional response prediction with a curated interaction graph. The model integrates baseline expression, drug targets, chemical fingerprints, and OmniPath interactions~\cite{turei2016omnipath}. Generalization is evaluated with unseen drug and unseen cell splits. Attention weights are analyzed as an interpretation signal, with the goal of producing pathway level summaries that are consistent with prior knowledge.
+\noindent Evaluation is also important in this area. Many studies report performance under random splits, where related drugs or cell contexts may appear in both training and test sets. For perturbation prediction, this can overestimate generalization. A stricter setting tests unseen drugs or unseen cell lines. This thesis follows that view and studies whether a graph based model can generalize beyond the conditions seen during training.
 
 \section{Ethical considerations}
-This thesis uses public datasets from LINCS L1000 and OmniPath. The data do not include personal patient identifiers. The work does not involve human subjects or clinical interventions. The main ethical issues are related to interpretation, generalization, and the use of model outputs.
+This thesis uses public data from LINCS L1000 and OmniPath. The data do not contain personal patient identifiers, and the work does not involve human or animal subjects. The main ethical concern is how the model outputs are used.
 
-The model predicts gene expression changes after drug treatment. These predictions should be treated as computational hypotheses. They can help prioritize compounds and guide follow up experiments. They should not be used to guide clinical decisions without careful validation. A major risk is over interpretation of model outputs as evidence of efficacy or safety.
+\noindent The model predicts gene expression changes after drug treatment. These predictions should be treated as computational hypotheses, not as evidence of efficacy or safety. They may support compound prioritization and hypothesis generation, but they should not be used for medical decision making without experimental and clinical validation.
 
-The model also produces attention based summaries that highlight edges used during message passing on the interaction graph. This can support interpretation and hypothesis generation. Attention weights are not causal proof. They reflect how the model pass information under the constraints. A pathway found by attention can be consistent with known biology, and it can also arise from graph topology, data bias, or noise in the measurements.
+\noindent Responsible reporting is therefore important. Model performance should be reported together with failure cases and limits of interpretation, especially when predictions are applied to unseen drugs or unseen cell lines.
 
-This study inherits limitations from both the experimental data and the prior knowledge sources. LINCS profiles are measured in a limited set of cell lines, and many cell lines are cancer derived. Results may not transfer to primary cells or tissues. Experimental settings such as dose, time, and plate can influence measurements. Matched controls and delta targets reduce some shared technical variation, and residual effects can remain.
+\noindent Computational cost is another concern. Training deep learning models requires compute resources, and repeated hyperparameter search uses more energy. In this thesis, the models are trained on standard hardware with a limited set of configurations to keep resource use at a reasonable level.
 
-OmniPath comes from published papers, but number of datas in different areas are imbalanced. Well studied pathways and popular genes can have more reported interactions. Less studied mechanisms can be under represented. This can bias both learning and interpretation. Predictions can be less reliable for drugs, cell types, or pathways that have weak coverage in curated resources.
+\section{Limitations}
+This study has limits from both the experimental data and the prior knowledge source. LINCS profiles are measured in a limited set of cell lines, and many of them are cancer derived. The results may therefore not transfer directly to primary cells or tissues. Experimental factors such as dose, treatment time, and plate context can also affect the measurements. Matched controls reduce some shared technical variation, but residual bias may remain.
 
-We can also make mistakes if we strongly trust the model’s rankings and choices. A model can be used to rank compounds or targets for follow up work. It can also be used in a way that hides uncertainty and ignores failure cases. Reporting both average performance and difficult cases across drugs and cell lines helps reduce this risk. Simple uncertainty estimates can further support responsible interpretation, especially when the model is applied outside the training distribution.
+\noindent OmniPath is built from published studies, and the available knowledge is uneven across pathways and genes. Well studied mechanisms tend to have more recorded interactions, while less studied mechanisms may be under represented. This imbalance can affect both prediction quality and interpretation.
 
-We also need to consider environmental and resource impacts. Training deep models requires compute and storage, and the total cost increases with repeated experiments and hyperparameter search. The models in this thesis are trained on standard hardware with a limited set of configurations. This supports a reasonable balance between experimental exploration and resource use.
+\noindent The model also provides attention weights as an interpretation signal. These values show which edges receive stronger weight during message passing, but they do not prove biological causality. A highlighted path may fit known biology, and it may also reflect graph structure, data bias, or measurement noise.
 
-Reproducibility is important for ethical and scientific reasons. The code and data processing steps are documented to support transparent comparison. Random splits and model training can introduce variability. Reporting the evaluation protocol and key hyperparameters helps reduce ambiguity and supports fair comparison with future work.
+\noindent Reproducibility is also an important practical issue. Model training includes random elements, so clear reporting of data splits, settings, and key hyperparameters is necessary for fair comparison and reliable interpretation.
 
 % 数据来源补充说明
 % LINCS L1000 数据集分为三个主要部分：

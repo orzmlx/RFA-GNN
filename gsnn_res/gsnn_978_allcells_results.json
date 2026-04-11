@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "split_mode": "warm",
+      "train_n": 42576,
+      "test_n": 3548,
+      "train_metrics": {
+        "mse": 0.9415009021759033,
+        "pcc": 0.46585971117019653
+      },
+      "test_metrics": {
+        "mse": 0.9609352350234985,
+        "pcc": 0.45549559593200684
+      },
+      "pred_npz": "/local/data1/liume102/rfa/gsnn_res/gsnn_978_allcells_results.pred.warm.npz"
+    },
+    {
+      "split_mode": "cold_drug",
+      "train_n": 45678,
+      "test_n": 2514,
+      "train_metrics": {
+        "mse": 0.9231628775596619,
+        "pcc": 0.47210878133773804
+      },
+      "test_metrics": {
+        "mse": 1.0900771617889404,
+        "pcc": 0.45559030771255493
+      },
+      "pred_npz": "/local/data1/liume102/rfa/gsnn_res/gsnn_978_allcells_results.pred.cold_drug.npz"
+    },
+    {
+      "split_mode": "cold_cell",
+      "train_n": 48873,
+      "test_n": 1449,
+      "train_metrics": {
+        "mse": 0.9511874914169312,
+        "pcc": 0.46642038226127625
+      },
+      "test_metrics": {
+        "mse": 0.8466077446937561,
+        "pcc": 0.42374515533447266
+      },
+      "pred_npz": "/local/data1/liume102/rfa/gsnn_res/gsnn_978_allcells_results.pred.cold_cell.npz"
+    }
+  ]
+}

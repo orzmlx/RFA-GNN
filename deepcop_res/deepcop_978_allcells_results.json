@@ -1,0 +1,67 @@
+{
+  "results": [
+    {
+      "split_mode": "warm",
+      "train_n": 42576,
+      "test_n": 3548,
+      "train_anchor_n": 14192,
+      "test_anchor_n": 3548,
+      "train_metrics": {
+        "mse": 0.5719110600908497,
+        "pcc": 0.6432926055772658
+      },
+      "test_metrics": {
+        "mse": 0.8491971345849555,
+        "pcc": 0.4639527201652527
+      },
+      "pred_npz": "/local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred.warm.npz",
+      "use_go_matrix": false,
+      "go_fingerprint_path": "",
+      "original_architecture": false,
+      "sanity_drug_zero_metrics": null,
+      "sanity_drug_shuffle_metrics": null
+    },
+    {
+      "split_mode": "cold_drug",
+      "train_n": 45678,
+      "test_n": 2514,
+      "train_anchor_n": 15226,
+      "test_anchor_n": 2514,
+      "train_metrics": {
+        "mse": 0.5405366883695822,
+        "pcc": 0.6614288685467329
+      },
+      "test_metrics": {
+        "mse": 1.150779089233142,
+        "pcc": 0.3283252716064453
+      },
+      "pred_npz": "/local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred.cold_drug.npz",
+      "use_go_matrix": false,
+      "go_fingerprint_path": "",
+      "original_architecture": false,
+      "sanity_drug_zero_metrics": null,
+      "sanity_drug_shuffle_metrics": null
+    },
+    {
+      "split_mode": "cold_cell",
+      "train_n": 48873,
+      "test_n": 1449,
+      "train_anchor_n": 16291,
+      "test_anchor_n": 1449,
+      "train_metrics": {
+        "mse": 0.6110074652686744,
+        "pcc": 0.6213726878189207
+      },
+      "test_metrics": {
+        "mse": 0.8501319497782842,
+        "pcc": 0.2910912036895752
+      },
+      "pred_npz": "/local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred.cold_cell.npz",
+      "use_go_matrix": false,
+      "go_fingerprint_path": "",
+      "original_architecture": false,
+      "sanity_drug_zero_metrics": null,
+      "sanity_drug_shuffle_metrics": null
+    }
+  ]
+}

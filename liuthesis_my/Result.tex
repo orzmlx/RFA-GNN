@@ -1,0 +1,304 @@
+% !TeX root = thesis.tex
+\chapter{Results and Discussion}
+This chapter reports the main results and then gives a closer look at the model behaviour. The aim is not only to show which model gives the best score. The aim is also to show how the scores change across settings and what the models learn from the data.
+\section{Evaluation framework}
+\noindent All experiments in this chapter use the L1000 landmark setting with 978 genes. Each sample includes a matched control profile, drug related features, and cell context information. The target is the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. All models use this same target.
+
+\noindent The evaluation includes three models. The first model is a DeepCOP style baseline. It uses the control profile and drug features in a feed forward network. The second model is GSNN, which is a graph based baseline with message passing~\cite{evans2024gsnn}. The third model is the proposed method. It is written as CAGNN in this chapter. CAGNN stands for Counterfactual Attention GNN.
+
+\noindent The evaluation uses three split settings. The warm split tests unseen treatment and control pairs under the same broad data setting. The cold drug split removes test drugs from training. The cold cell split removes test cell lines from training. The cold cell split is expected to be the hardest. A new cell line changes the baseline expression state. It can also change how the same drug acts in the cell.
+
+\noindent In addition to these standard splits, this thesis can also use restricted training settings as a stronger stress test. These settings do not define a new metric. They define a more limited training condition. In a single cell line training setting, the model is trained only on samples from one cell line and is then tested on a broader set of samples. In a single drug training setting, the model is trained only on samples from one drug and is then tested on a broader set of samples. These settings are useful for studying extreme generalization under severe data restriction.
+
+\noindent Two metrics give the main summary. Mean squared error measures numerical accuracy. A lower value means that the prediction is closer to the observed response. Sample wise Pearson correlation coefficient measures whether the predicted response follows the gene level pattern in each sample. A higher value means better agreement in the up and down trend across genes. The two metrics describe different parts of model quality. MSE focuses on absolute error. PCC focuses on the shape of the response.
+
+\begin{table}[H]
+\centering
+\caption{Summary of the evaluation protocol used in the thesis.}
+\label{tab:result_protocol}
+\begin{tabular}{p{3.0cm}p{9.2cm}}
+\hline
+Component & Setting \\
+\hline
+Dataset & LINCS L1000 landmark genes, 978 genes \\
+Prediction target & Differential response $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ \\
+Models & DeepCOP baseline, GSNN, CAGNN \\
+Splits & Warm, cold drug, cold cell \\
+Restricted training settings & Single cell line training, single drug training \\
+Main metrics & Test MSE and sample wise test PCC \\
+Matching policy & Split before match, isolated control pools for train and test \\
+Test pairing & One treatment profile matched to one control sample \\
+Top gene analysis & Pos P@20 and Neg P@20 from saved predictions \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/evaluation_framework.png}
+\caption{Overview of the evaluation framework used in this chapter.}
+\label{fig:evaluation_framework}
+\end{figure}
+
+\noindent Simple mean based baselines are also used as lower references. They are shown with the learned models in the metric specific figures below. In the warm setting, both mean\_cell and mean\_drug can be used. In the cold drug setting, only mean\_cell can be used because the test drugs are unseen in training. In the cold cell setting, only mean\_drug can be used because the test cell lines are unseen in training. This follows the evaluation style used in XPert. It also makes the comparison easier to read.
+
+\section{Error metrics}
+Figure~\ref{fig:evaluation_framework} divides the evaluation into error, precision, and correlation metrics. Error metrics come first because they give the clearest view of numerical prediction quality. In this section, the main error metric is mean squared error. A lower value means that the predicted response is closer to the observed response.
+
+\noindent Table~\ref{tab:mse_results} shows the MSE results for the three splits. DeepCOP gives the lowest MSE in the warm split. GSNN gives the lowest MSE in the cold cell split. CAGNN gives the lowest MSE in the cold drug split. This pattern shows that model ranking depends on the type of generalization that is tested. It also shows that a low MSE does not always mean the best gene ranking pattern. That point becomes clearer in the later correlation results.
+
+\begin{table}[H]
+\centering
+\caption{Test MSE under the three evaluation splits. Lower is better.}
+\label{tab:mse_results}
+\begin{tabular}{llc}
+\hline
+Model & Split & Test MSE \\
+\hline
+DeepCOP & Warm & 0.8492 \\
+DeepCOP & Cold drug & 1.1508 \\
+DeepCOP & Cold cell & 0.8501 \\
+GSNN & Warm & 0.9609 \\
+GSNN & Cold drug & 1.0901 \\
+GSNN & Cold cell & 0.8466 \\
+CAGNN & Warm & 0.8522 \\
+CAGNN & Cold drug & 0.9885 \\
+CAGNN & Cold cell & 1.4326 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\linewidth]{figures/benchmark_mse_with_mean_baselines.png}
+\caption{Test MSE across the three evaluation splits for the learned models and the simple mean baselines. mean\_drug is omitted in cold drug and mean\_cell is omitted in cold cell because these baselines are not applicable in those settings.}
+\label{fig:benchmark_mse_results}
+\end{figure}
+
+\noindent Summary scores hide part of the picture. It is also useful to ask where the errors appear and how wide the error spread becomes. Samples with weak responses are often hard to predict because a small numerical shift can still cause a large relative error. This issue matters even more in the cold cell split, where the baseline expression state changes across cell lines.
+
+\noindent Annotation quality also matters here. The current pipeline keeps only treatment profiles that have both target annotations and molecular fingerprints. Even with this filter, the target information is still incomplete. A drug can have only a few known targets and still produce a strong downstream response through unknown or indirect paths. When such cases fail, the failure should not be read only as a weakness of the graph model.
+
+\begin{table}[H]
+\centering
+\caption{Example of grouped error analysis. The values are placeholders.}
+\label{tab:error_groups}
+\begin{tabular}{lc}
+\hline
+Group & Test MSE \\
+\hline
+Warm split, all samples & 0.38 \\
+Cold drug, all samples & 0.48 \\
+Cold cell, all samples & 0.66 \\
+High response magnitude & 0.44 \\
+Low response magnitude & 0.59 \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent A scatter plot of $y_{\mathrm{true}}$ and $y_{\mathrm{pred}}$ is also useful in this section. The MSE table gives a summary, but the scatter plot shows more clearly how close the predictions stay to the diagonal line. It also shows whether the model tends to under predict or over predict larger responses. Figure~\ref{fig:gene_expr_true_pred} is grouped by split. This layout makes the change in error spread easier to compare across settings and across models.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/gene_expr_true_pred_all_models_by_split.png}
+\caption{Gene level scatter plots for DeepCOP, GSNN, and CAGNN across the three evaluation splits. The columns show warm, cold drug, and cold cell settings. The diagonal line indicates perfect agreement.}
+\label{fig:gene_expr_true_pred}
+\end{figure}
+
+\section{Precision metrics}
+The second group of metrics focuses on whether the models recover the most responsive genes. This view is important because perturbation analysis often cares more about the strongest up regulated and down regulated genes than about every small change in the full response vector. For this reason, top gene precision is treated as a separate part of the evaluation.
+
+\noindent This analysis can be computed directly from the saved prediction files. In this chapter, the definition follows the XPert evaluation style. For each sample, the true response vector $y_{\mathrm{true}}$ and the predicted response vector $y_{\mathrm{pred}}$ are ranked across genes. Positive precision at 20, written as Pos P@20, measures how many of the 20 most up regulated genes in $y_{\mathrm{pred}}$ fall inside the top 100 most up regulated genes in $y_{\mathrm{true}}$. Negative precision at 20, written as Neg P@20, is defined in the same way for the 20 most down regulated genes. The final value is the mean across all test samples. These metrics do not replace MSE or PCC. They add a different view of prediction quality that is closer to practical use.
+
+\noindent Table~\ref{tab:top_gene_analysis} reports the top gene precision values computed from the exported prediction files with the XPert style definition. CAGNN gives the best Pos P@20 in the warm and cold drug splits. GSNN gives the best Pos P@20 in the cold cell split. For Neg P@20, CAGNN gives the best result in all three splits. Figure~\ref{fig:top_gene_placeholder} shows the same comparison in visual form for all three models.
+
+\begin{table}[H]
+\centering
+\caption{Top gene precision results computed from the exported prediction files. Higher is better.}
+\label{tab:top_gene_analysis}
+\begin{tabular}{llcc}
+\hline
+Model & Split & Pos P@20 & Neg P@20 \\
+\hline
+DeepCOP & Warm & 0.5285 & 0.5394 \\
+DeepCOP & Cold drug & 0.3934 & 0.4194 \\
+DeepCOP & Cold cell & 0.3376 & 0.3523 \\
+GSNN & Warm & 0.5179 & 0.4827 \\
+GSNN & Cold drug & 0.5062 & 0.4855 \\
+GSNN & Cold cell & 0.4779 & 0.4388 \\
+CAGNN & Warm & 0.5954 & 0.6135 \\
+CAGNN & Cold drug & 0.5784 & 0.5808 \\
+CAGNN & Cold cell & 0.3964 & 0.4127 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\linewidth]{figures/top_gene_precision_results.png}
+\caption{Top gene precision computed from the exported prediction files with the XPert style definition. The left panel shows Pos P@20 and the right panel shows Neg P@20 for DeepCOP, GSNN, and CAGNN across the three evaluation splits.}
+\label{fig:top_gene_placeholder}
+\end{figure}
+
+\section{Correlation metrics}
+The third group of metrics focuses on correlation. In this chapter, the main correlation metric is sample wise Pearson correlation coefficient. PCC measures whether the predicted response follows the correct gene level pattern within each sample. A higher value means better agreement in the shape of the response profile, even when the absolute size is not matched exactly.
+
+\noindent Table~\ref{tab:pcc_results} shows the PCC results for the three splits. CAGNN gives the best PCC in the warm and cold drug settings. GSNN gives the best PCC in the cold cell setting and is the most stable model across the three splits. DeepCOP stays competitive in MSE in some settings, but its PCC drops more in the harder splits. This contrast between MSE and PCC is useful. A model can keep part of the gene ranking pattern while still making larger errors in absolute size.
+
+\begin{table}[H]
+\centering
+\caption{Test PCC under the three evaluation splits. Higher is better.}
+\label{tab:pcc_results}
+\begin{tabular}{llc}
+\hline
+Model & Split & Test PCC \\
+\hline
+DeepCOP & Warm & 0.4640 \\
+DeepCOP & Cold drug & 0.3283 \\
+DeepCOP & Cold cell & 0.2911 \\
+GSNN & Warm & 0.4609 \\
+GSNN & Cold drug & 0.4556 \\
+GSNN & Cold cell & 0.4237 \\
+CAGNN & Warm & 0.5390 \\
+CAGNN & Cold drug & 0.5178 \\
+CAGNN & Cold cell & 0.3924 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.86\linewidth]{figures/benchmark_pcc_with_mean_baselines.png}
+\caption{Test PCC across the three evaluation splits for the learned models and the simple mean baselines. mean\_drug is omitted in cold drug and mean\_cell is omitted in cold cell because these baselines are not applicable in those settings.}
+\label{fig:benchmark_pcc_results}
+\end{figure}
+
+\subsection{Regulation sign agreement}
+\noindent A second metric can also be used to check gene level direction agreement. This metric asks whether the model predicts the sign of regulation correctly for each gene. For a given sample, the predicted response and the true response are compared gene by gene. A match means that both values are positive or both values are negative. In this calculation, no extra threshold is used.
+
+\noindent For one sample with $G$ genes, the regulation sign accuracy is defined as
+\[
+\mathrm{Acc}_{\mathrm{sign}}=\frac{1}{G}\sum_{i=1}^{G}\mathbf{1}\left[\mathrm{sign}\!\left(\Delta^{\mathrm{pred}}_i\right)=\mathrm{sign}\!\left(\Delta^{\mathrm{true}}_i\right)\right].
+\]
+The final test score is the mean of this value across all test samples. This metric does not use the size of the response. It only checks whether the direction of change is correct.
+
+\noindent Table~\ref{tab:sign_accuracy_results} shows the sign agreement results under the three splits. DeepCOP gives the highest sign accuracy in the warm split. CAGNN gives the highest sign accuracy in the cold drug split. GSNN gives the highest sign accuracy in the cold cell split. These results are consistent with the broader pattern seen in PCC. The cold cell setting is again the hardest setting for all models.
+
+\begin{table}[H]
+\centering
+\caption{Regulation sign accuracy under the three evaluation splits. Higher is better.}
+\label{tab:sign_accuracy_results}
+\begin{tabular}{llc}
+\hline
+Model & Split & Sign accuracy \\
+\hline
+DeepCOP & Warm & 0.6567 \\
+DeepCOP & Cold drug & 0.5995 \\
+DeepCOP & Cold cell & 0.5725 \\
+GSNN & Warm & 0.6086 \\
+GSNN & Cold drug & 0.6038 \\
+GSNN & Cold cell & 0.6084 \\
+CAGNN & Warm & 0.6496 \\
+CAGNN & Cold drug & 0.6415 \\
+CAGNN & Cold cell & 0.5801 \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent The PCC results also help explain generalization under distribution shift. The harder blind tests are more useful than the warm split because they show whether the model learns broader response rules or mainly fits a familiar data setting. In Table~\ref{tab:pcc_results}, the cold cell setting is the clearest bottleneck. All models lose PCC there. This pattern makes sense because a new cell line changes the baseline state and can also change how the same drug acts in context.
+
+\noindent The current results give a mixed picture. CAGNN generalizes best to unseen drugs in terms of PCC. GSNN is stronger on unseen cell lines. This suggests that graph structure is useful, but the current attention based design is not yet the best option for the cold cell setting. The remaining gap in cold cell performance points to the need for better cell state modelling and better handling of context specific regulation.
+
+\begin{table}[H]
+\centering
+\caption{Relative PCC drop from the warm split.}
+\label{tab:generalization_drop}
+\begin{tabular}{lcc}
+\hline
+Model & PCC drop in cold drug & PCC drop in cold cell \\
+\hline
+DeepCOP & 0.1357 & 0.1729 \\
+GSNN & 0.0053 & 0.0372 \\
+CAGNN & 0.0212 & 0.1466 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Gene level distribution analysis}
+\noindent Figure~\ref{fig:xpert_style_gene_distribution} gives a more direct gene level view of model behaviour. For each split, the figure shows the distribution of $x_{\mathrm{deg}}$ for ten representative response genes. Here, $x_{\mathrm{deg}}$ is the differential response defined as treatment minus control. The genes are selected by the mean absolute true response in the test set, so they represent genes with strong observed changes in each split.
+
+\noindent The cold drug panel shows a relatively good match between CAGNN and the ground truth for several genes. The median values are often close, and the spread is also reasonably similar for part of the panel. This pattern is consistent with the earlier PCC results, where CAGNN gives the strongest performance in the cold drug setting. The model appears to transfer drug related information better than cell related information.
+
+\noindent The cold cell panel shows a weaker result. For several genes, the CAGNN boxes shift away from the ground truth or show a noticeably different spread. In some cases, the predicted distribution is too narrow, and in other cases the central tendency is misplaced. GSNN is often closer to the ground truth in this setting. This agrees with the earlier quantitative results. The cold cell setting remains the main weakness of the current CAGNN design.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/xpert_style_gene_distribution.png}
+\caption{Gene level distribution comparison in the cold cell and cold drug settings. For each split, the figure shows the differential response $x_{\mathrm{deg}}$ for ten representative response genes selected by the mean absolute true response in the test set. Ground truth, DeepCOP, GSNN, and CAGNN are shown side by side for each gene.}
+\label{fig:xpert_style_gene_distribution}
+\end{figure}
+
+\subsection{Ablation analysis}
+\noindent Correlation based results are also useful for ablation analysis because they show whether each component helps preserve the response pattern across genes. The examples below focus on CAGNN because it is the main model in this thesis and it has the richest set of configurable parts. Removing the counterfactual regularization causes a small drop, and the drop is clearer in the harder split. Removing the drug fingerprint branch causes another drop. This suggests that target annotations and structural features give different but useful information. Removing the cell embedding also weakens the model. This is expected because perturbation response depends on cellular context. Changing training from multiple control matches to a single match also causes a small but steady decrease.
+
+\noindent These trends support a simple interpretation. The final performance does not come from one single trick. It comes from the combination of graph propagation, drug related features, and explicit conditioning on cellular context.
+
+\begin{table}[H]
+\centering
+\caption{Representative ablation results for CAGNN. The values are placeholders.}
+\label{tab:ablation_gat}
+\begin{tabular}{lcc}
+\hline
+Variant & Cold drug PCC & Cold cell PCC \\
+\hline
+Full CAGNN & 0.63 & 0.49 \\
+Without counterfactual regularization & 0.60 & 0.45 \\
+Without drug fingerprint embedding & 0.58 & 0.43 \\
+Without cell embedding & 0.56 & 0.40 \\
+Single control match in training & 0.59 & 0.44 \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent A second set of ablations can also be added for the baseline family. In the current code, DeepCOP supports different drug feature settings such as target only, fingerprint only, and target plus fingerprint. This makes it possible to test whether the baseline benefits more from chemical descriptors, target annotations, or the combination of both. This comparison should stay focused on the most useful settings.
+
+\section{Restricted training settings}
+This section introduces a stricter evaluation setting. The aim is to test whether the model can learn a useful response rule from a very limited source domain and then transfer it to a broader test set. These settings are not new metrics. They are additional generalization settings under strong data restriction.
+
+\subsection{Single cell line training}
+\noindent In the single cell line training setting, the model is trained only on samples from one cell line. The test set then includes a broader collection of samples outside that restricted training source. This setting asks whether the model can learn transferable drug response patterns from one cellular context and apply them to other contexts. It is a strong test because perturbation response is highly dependent on cell state.
+
+\noindent The same evaluation metrics can be used in this setting. MSE measures numerical error. PCC measures agreement in response shape. Top gene precision measures whether the strongest regulated genes are recovered. Regulation sign accuracy measures whether the direction of regulation is predicted correctly. Together, these metrics show whether the model keeps useful information when training data come from only one cell line.
+
+\subsection{Single drug training}
+\noindent In the single drug training setting, the model is trained only on samples from one drug. The test set again includes a broader collection of samples outside that restricted training source. This setting asks whether the model can learn a response rule from one perturbation and transfer that rule to other perturbations. This is an extreme setting, but it is useful for studying how much the model depends on drug specific information.
+
+\noindent The same metric groups remain useful in this setting. Error metrics show whether the predicted values stay close to the true response. Correlation and sign based metrics show whether the direction and overall pattern of the response are preserved. Precision metrics show whether the model still recovers the most responsive genes. If future experiments are added, this section can be used to compare how strongly performance depends on diversity in the training source.
+
+\section{Interpretation and case studies}
+A compact case study helps connect the summary metrics to one perturbation example. The aim is not to make a strong biological claim. The aim is to show how the predicted response compares with the observed response for one sample. This kind of example makes the benchmark easier to read because it shows which genes are recovered well and where the models still differ.
+
+\noindent Figure~\ref{fig:case_study_placeholder} shows one sample from the cold drug split. The chosen perturbation has a fairly strong response, so the comparison is easier to read. The figure lists the genes with the largest absolute true response and compares the true values with the predictions from DeepCOP and GSNN. In this example, both models recover part of the sign pattern, but the predicted sizes still differ for several genes. This matches the earlier result that agreement in pattern and agreement in absolute value do not always appear together.
+
+\noindent A deeper interpretation study can still be added later for the sparse attention version of CAGNN. That type of analysis could connect predictive performance with graph level importance patterns. In this chapter, the case study stays focused on prediction behaviour.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\linewidth]{figures/case_study_prediction_example.png}
+\caption{Representative prediction case study from the cold drug split. The figure compares the true response with the predictions of DeepCOP and GSNN for the genes with the largest absolute response in one selected perturbation sample.}
+\label{fig:case_study_placeholder}
+\end{figure}
+
+\section{Discussion}
+Taken together, the results in this chapter support a clear picture. Simple baselines can predict part of the perturbation response, but stronger generalization needs explicit modelling of drug information, cellular context, and biological structure. The graph based models are most useful when the test distribution moves away from the training data.
+
+\noindent The results also show that a good warm split score should be read with care. Warm performance is important because it shows whether the model can fit the task. But it is not enough to claim strong biological generalization. The cold drug and cold cell settings are more useful. The cold cell result is especially important because it shows how hard it is to transfer perturbation knowledge across cellular contexts.
+
+\noindent Several limitations remain. Drug target annotations are incomplete and may miss indirect or secondary mechanisms. The biological graph is curated, so it is biased toward well studied pathways. Some cell lines have much richer training support than others. The final benchmark is also limited to the 978 landmark genes. This keeps the task manageable, but it leaves much of the transcriptome outside the target. These points do not invalidate the approach, but they set clear limits on how the results should be read.
+
+\noindent Another important lesson is methodological. Small details in data pairing and split construction can strongly change the apparent difficulty of the benchmark. The final pipeline in this thesis separates the split step from the control matching step and isolates the control pools of the training and test sets. This design reduces overly optimistic evaluation and makes the reported numbers more credible.
+
+\section{Summary of findings}
+Several findings stand out in this chapter. The benchmark comparison suggests that graph based models offer an advantage over simpler baselines, especially beyond the warm split. CAGNN combines graph attention, drug related features, and counterfactual regularization. The ablation analysis suggests that each of these parts contributes to the final result. The top gene analysis adds another view of model quality by showing whether the model can recover the strongest up regulated and down regulated genes.
+
+\noindent The most difficult setting is generalization to unseen cell lines. This result shows both the value and the limit of the current framework. Prior molecular knowledge helps, but robust transfer across cellular contexts is still hard. This tension is central to the thesis. It leads into the next chapter, which discusses what was achieved, what remains hard, and which directions look most useful for future work.

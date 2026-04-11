@@ -428,6 +428,7 @@ def main():
     parser.add_argument("--no-use_drug_embedding", dest="use_drug_fp_embedding", action="store_false")
     parser.add_argument("--sparse_gat", action="store_true", default=True)
     parser.add_argument("--ctl_pair_k", type=int, default=3)
+    parser.add_argument("--pairing_mode", choices=["multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"], default="multi_trt_multi_ctl")
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.2)
@@ -438,7 +439,7 @@ def main():
     parser.add_argument("--no_cell_embedding", action="store_true", default=False)
     parser.add_argument("--omnipath_consensus_only", action="store_true", default=False)
     parser.add_argument("--omnipath_is_directed_only", action="store_true", default=False)
-    parser.add_argument("--split_mode", choices=["cold_drug", "cold_cell"], default="cold_drug")
+    parser.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell"], default="cold_drug")
     parser.add_argument("--test_frac", type=float, default=0.2)
     parser.add_argument("--cf_mode", choices=["shuffle", "zero"], default="shuffle")
     parser.add_argument("--cf_lambda", type=float, default=1.0)
@@ -476,7 +477,7 @@ def main():
         sys.path.insert(0, src)
 
     from base_gnn import BaseLineGAT
-    from data_loader import load_rfa_data, build_combined_gnn
+    from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, build_scheme_a_split_data
 
     class GATWrapperCF(keras.Model):
         def __init__(self, gat_model, adj_matrix, use_drug_fp_embedding=False, fp_table=None):
@@ -546,6 +547,7 @@ def main():
         full_gene_path=full_gene_path,
         cell_lines=cell_lines,
         ctl_residual_pool_size=int(args.ctl_pair_k),
+        pairing_mode=str(args.pairing_mode),
     )
     if data is None:
         raise RuntimeError("load_rfa_data returned None")
@@ -553,7 +555,6 @@ def main():
     adj_matrix, node_list, gene2idx, edge_index = build_combined_gnn(
         tf_path=tf_path,
         ppi_path=ppi_path,
-        string_path=None,
         target_genes=data["target_genes"],
         confid_threshold=0.9,
         directed=True,
@@ -564,85 +565,54 @@ def main():
     if len(node_list) != len(data["target_genes"]) or node_list[:50] != data["target_genes"][:50]:
         raise ValueError("Graph node_list 与表达 target_genes 顺序/长度不一致")
 
-    X_ctl = np.asarray(data["X_ctl"])
-    y_delta = np.asarray(data["y_delta"])
-    X_drug = np.asarray(data["X_drug"])
-    X_fp = data.get("X_fingerprint")
-    X_fp = None if X_fp is None else np.asarray(X_fp)
+    anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
+    anchor_cell_names_arr = np.asarray(data["anchor_cell_names"], dtype=str)
     fp_table = data.get("drug_fp_table")
-    fp_idx = data.get("drug_fp_idx")
     fp_table = None if fp_table is None else np.asarray(fp_table, dtype=np.float32)
-    fp_idx = None if fp_idx is None else np.asarray(fp_idx, dtype=np.int32)
-    drug_ids = np.asarray(data["drug_ids"], dtype=str)
-    cell_names_arr = np.asarray(data["cell_names"], dtype=str)
-    batch_ids_arr = np.asarray(data.get("batch_ids", ["Unknown"] * len(drug_ids)), dtype=str)
-    drug_has_target = data.get("drug_has_target")
-    drug_has_target = None if drug_has_target is None else np.asarray(drug_has_target, dtype=np.float32)
 
-    if int(args.max_samples) > 0 and len(X_ctl) > int(args.max_samples):
+    if int(args.max_samples) > 0 and len(anchor_drug_ids) > int(args.max_samples):
         rng = np.random.default_rng(42)
-        idx = rng.choice(len(X_ctl), size=int(args.max_samples), replace=False)
-        X_ctl = X_ctl[idx]
-        y_delta = y_delta[idx]
-        X_drug = X_drug[idx]
-        if X_fp is not None:
-            X_fp = X_fp[idx]
-        if X_fp is None and fp_idx is not None:
-            fp_idx = fp_idx[idx]
-        drug_ids = drug_ids[idx]
-        cell_names_arr = cell_names_arr[idx]
-        batch_ids_arr = batch_ids_arr[idx]
-        if drug_has_target is not None:
-            drug_has_target = drug_has_target[idx]
+        idx = rng.choice(len(anchor_drug_ids), size=int(args.max_samples), replace=False)
+        data = subset_anchor_data(data, idx)
+        anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
+        anchor_cell_names_arr = np.asarray(data["anchor_cell_names"], dtype=str)
 
     le = LabelEncoder()
-    cell_idx = le.fit_transform(cell_names_arr)
+    le.fit(anchor_cell_names_arr)
     num_cells = int(len(le.classes_))
 
     split_mode = str(args.split_mode)
-    test_frac = float(args.test_frac)
-    if test_frac <= 0.0 or test_frac >= 1.0:
-        raise ValueError("--test_frac 需要在 (0, 1) 之间")
+    train_data, test_data, train_anchor_mask, test_anchor_mask = build_scheme_a_split_data(
+        data=data,
+        split_mode=split_mode,
+        test_frac=float(args.test_frac),
+        seed=42,
+        train_pairing_mode=str(args.pairing_mode),
+        train_ctl_pair_k=int(args.ctl_pair_k),
+        test_pairing_mode="unique_trt_reuse_ctl",
+    )
 
-    np.random.seed(42)
-    if split_mode == "cold_cell":
-        unique_cells = np.unique(cell_idx)
-        if len(unique_cells) < 2:
-            raise ValueError("cold_cell 需要至少 2 个细胞系；请设置 --cell_line ALL 并避免过小的 --max_samples")
-        n_test = max(1, int(len(unique_cells) * test_frac))
-        n_test = min(n_test, len(unique_cells) - 1)
-        test_cells_set = np.random.choice(unique_cells, n_test, replace=False)
-        test_mask = np.isin(cell_idx, test_cells_set)
-        train_mask = ~test_mask
-        print(f"Split=cold_cell | Held-out cells: {len(test_cells_set)}/{len(unique_cells)}")
-    else:
-        unique_drugs = np.unique(drug_ids)
-        if len(unique_drugs) < 2:
-            raise ValueError("cold_drug 需要至少 2 个药物；请避免过小的 --max_samples")
-        n_test = max(1, int(len(unique_drugs) * test_frac))
-        n_test = min(n_test, len(unique_drugs) - 1)
-        test_drugs = np.random.choice(unique_drugs, n_test, replace=False)
-        test_mask = np.isin(drug_ids, test_drugs)
-        train_mask = ~test_mask
-        print(f"Split=cold_drug | Held-out drugs: {len(test_drugs)}/{len(unique_drugs)}")
+    train_ctl = np.asarray(train_data["X_ctl"], dtype=np.float32)
+    train_trt_full = np.asarray(train_data["y_delta"], dtype=np.float32)
+    train_drug = np.asarray(train_data["X_drug"], dtype=np.float32)
+    train_cells = le.transform(np.asarray(train_data["cell_names"], dtype=str))
+    train_fp = train_data.get("X_fingerprint")
+    train_fp = None if train_fp is None else np.asarray(train_fp)
+    if train_fp is None:
+        train_fp = np.asarray(train_data["drug_fp_idx"], dtype=np.int32)
 
-    train_ctl = X_ctl[train_mask]
-    train_trt_full = y_delta[train_mask]
-    train_drug = X_drug[train_mask]
-    train_cells = cell_idx[train_mask]
-    if X_fp is not None:
-        train_fp = X_fp[train_mask]
-    else:
-        train_fp = None if fp_idx is None else fp_idx[train_mask]
-
-    test_ctl = X_ctl[test_mask]
-    test_trt_full = y_delta[test_mask]
-    test_drug = X_drug[test_mask]
-    test_cells = cell_idx[test_mask]
-    if X_fp is not None:
-        test_fp = X_fp[test_mask]
-    else:
-        test_fp = None if fp_idx is None else fp_idx[test_mask]
+    test_ctl = np.asarray(test_data["X_ctl"], dtype=np.float32)
+    test_trt_full = np.asarray(test_data["y_delta"], dtype=np.float32)
+    test_drug = np.asarray(test_data["X_drug"], dtype=np.float32)
+    test_cells = le.transform(np.asarray(test_data["cell_names"], dtype=str))
+    test_fp = test_data.get("X_fingerprint")
+    test_fp = None if test_fp is None else np.asarray(test_fp)
+    if test_fp is None:
+        test_fp = np.asarray(test_data["drug_fp_idx"], dtype=np.int32)
+    drug_ids = np.asarray(test_data["drug_ids"], dtype=str)
+    cell_names_arr = np.asarray(test_data["cell_names"], dtype=str)
+    batch_ids_arr = np.asarray(test_data.get("batch_ids", ["Unknown"] * len(test_ctl)), dtype=str)
+    trt_distil_ids = np.asarray(test_data.get("trt_distil_ids", [""] * len(test_ctl)), dtype=object)
 
     residualize_target = not bool(args.no_residualize_target_by_cell)
     cell_delta_mean = None
@@ -660,12 +630,7 @@ def main():
         train_trt = train_trt_full
         test_trt = test_trt_full
 
-    if X_fp is not None:
-        fp_dim = int(X_fp.shape[1])
-    elif fp_table is not None:
-        fp_dim = int(fp_table.shape[1])
-    else:
-        fp_dim = 0
+    fp_dim = int(fp_table.shape[1]) if fp_table is not None else 0
     if args.use_drug_fp_embedding and fp_dim <= 0:
         raise RuntimeError("use_drug_fp_embedding=True 但指纹不存在（X_fingerprint 与 drug_fp_table 均为空）")
 
@@ -737,12 +702,8 @@ def main():
         train_x = [train_ctl, train_drug, train_cells]
         test_x = [test_ctl, test_drug, test_cells]
 
-    if drug_has_target is None:
-        train_has_t = np.ones((len(train_ctl),), dtype=np.float32)
-        test_has_t = np.ones((len(test_ctl),), dtype=np.float32)
-    else:
-        train_has_t = drug_has_target[train_mask].astype(np.float32)
-        test_has_t = drug_has_target[test_mask].astype(np.float32)
+    train_has_t = np.asarray(train_data.get("drug_has_target", np.ones((len(train_ctl),), dtype=np.float32)), dtype=np.float32)
+    test_has_t = np.asarray(test_data.get("drug_has_target", np.ones((len(test_ctl),), dtype=np.float32)), dtype=np.float32)
 
     ds_train = tf.data.Dataset.from_tensor_slices((tuple(train_x), train_trt, train_has_t)).batch(int(args.batch_size))
     ds_val = tf.data.Dataset.from_tensor_slices((tuple(test_x), test_trt, test_has_t)).batch(int(args.batch_size))
@@ -841,7 +802,7 @@ def main():
         out_dir = os.path.dirname(test_ids_path)
         if out_dir != "":
             os.makedirs(out_dir, exist_ok=True)
-        np.save(test_ids_path, np.asarray(trt_distil_ids[test_mask], dtype=object))
+        np.save(test_ids_path, np.asarray(trt_distil_ids, dtype=object))
         print(f"Saved test ids to: {test_ids_path}")
 
     if str(args.save_meta_json).strip() != "":
@@ -865,6 +826,9 @@ def main():
             "per_node_head": bool(args.per_node_head),
             "no_cell_embedding": bool(args.no_cell_embedding),
             "no_residualize_target_by_cell": bool(args.no_residualize_target_by_cell),
+            "pairing_mode": str(args.pairing_mode),
+            "train_anchor_n": int(np.sum(train_anchor_mask)),
+            "test_anchor_n": int(np.sum(test_anchor_mask)),
             "cf_mode": str(args.cf_mode),
             "cf_lambda": float(args.cf_lambda),
             "cf_margin": float(args.cf_margin),
@@ -957,9 +921,9 @@ def main():
             group_by = str(args.attention_group_by).strip().lower()
             group_labels = None
             if group_by == "drug":
-                group_labels = np.asarray(drug_ids[test_mask][sel], dtype=str)
+                group_labels = np.asarray(drug_ids[sel], dtype=str)
             elif group_by == "cell":
-                group_labels = np.asarray(cell_names_arr[test_mask][sel], dtype=str)
+                group_labels = np.asarray(cell_names_arr[sel], dtype=str)
             keep_groups = None
             if group_labels is not None:
                 specified = _parse_csv_list(args.attention_groups)
@@ -1032,6 +996,9 @@ def main():
             "cell_line": args.cell_line,
             "use_landmark_genes": bool(args.use_landmark_genes),
             "split_mode": str(args.split_mode),
+            "pairing_mode": str(args.pairing_mode),
+            "train_anchor_n": int(np.sum(train_anchor_mask)),
+            "test_anchor_n": int(np.sum(test_anchor_mask)),
             "test_frac": float(args.test_frac),
             "epochs": int(args.epochs),
             "batch_size": int(args.batch_size),
@@ -1064,10 +1031,10 @@ def main():
             y_pred=y_pred_test.astype(np.float32),
             sample_pcc=sample_pcc.astype(np.float32),
             sample_mse=sample_mse.astype(np.float32),
-            cell_names=np.asarray(cell_names_arr[test_mask], dtype=object),
-            drug_ids=np.asarray(drug_ids[test_mask], dtype=object),
-            batch_ids=np.asarray(batch_ids_arr[test_mask], dtype=object),
-            trt_distil_ids=np.asarray(trt_distil_ids[test_mask], dtype=object),
+            cell_names=np.asarray(cell_names_arr, dtype=object),
+            drug_ids=np.asarray(drug_ids, dtype=object),
+            batch_ids=np.asarray(batch_ids_arr, dtype=object),
+            trt_distil_ids=np.asarray(trt_distil_ids, dtype=object),
             target_genes=np.asarray(data["target_genes"], dtype=object),
             metrics=test_metrics,
             sanity=sanity,

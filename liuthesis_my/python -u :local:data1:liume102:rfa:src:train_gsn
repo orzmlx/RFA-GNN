@@ -1,0 +1,16 @@
+ python -u /local/data1/liume102/rfa/src/train_gsnn_eval.py \
+  --root /local/data1/liume102/rfa \
+  --cell_line ALL \
+  --use_landmark_genes \
+  --epochs 50 \
+  --batch_size 64 \
+  --max_samples 0 \
+  --channels 8 \
+  --layers 3 \
+  --dropout 0.1 \
+  --lr 1e-3 \
+  --weight_decay 1e-4 \
+  --norm none \
+  --split_modes warm,cold_drug,cold_cell \
+  --test_frac 0.2 \
+  --save_json /local/data1/liume102/rfa/gsnn/gsnn_978_allcells_results.json 
