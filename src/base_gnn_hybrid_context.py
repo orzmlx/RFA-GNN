@@ -22,6 +22,8 @@ class BaseLineGATHybridContext(keras.Model):
         per_node_embedding=False,
         use_sparse_adj=False,
         use_cell_embedding=True,
+        predict_uncertainty=False,
+        cell_dropout_rate=0.2,
         context_hidden_dim=None,
         **kwargs,
     ):
@@ -35,6 +37,8 @@ class BaseLineGATHybridContext(keras.Model):
         self.per_node_embedding = bool(per_node_embedding)
         self.use_sparse_adj = bool(use_sparse_adj)
         self.use_cell_embedding = bool(use_cell_embedding)
+        self.predict_uncertainty = bool(predict_uncertainty)
+        self.cell_dropout_rate = float(cell_dropout_rate)
         self.context_hidden_dim = int(context_hidden_dim or hidden_dim * 2)
 
         self.expr_embedding = layers.Dense(hidden_dim, activation="relu")
@@ -43,8 +47,18 @@ class BaseLineGATHybridContext(keras.Model):
 
         if self.use_cell_embedding:
             self.cell_embedding = layers.Embedding(num_cells, hidden_dim)
+            # Use a single mixing weight so cell-id and control context form a normalized fusion.
+            self.cell_mix_logit = self.add_weight(
+                shape=(),
+                initializer=keras.initializers.Constant(-3.0),
+                name="cell_mix_logit",
+            )
+            # Drop the whole cell-id branch per sample instead of individual embedding dimensions.
+            self.cell_dropout = layers.Dropout(self.cell_dropout_rate, noise_shape=(None, 1))
         else:
             self.cell_embedding = None
+            self.cell_mix_logit = None
+            self.cell_dropout = None
 
         self.context_norm = layers.LayerNormalization(axis=-1)
         self.context_encoder = keras.Sequential(
@@ -54,15 +68,6 @@ class BaseLineGATHybridContext(keras.Model):
                 layers.Dense(hidden_dim, activation="relu"),
             ]
         )
-        self.context_delta = layers.Dense(hidden_dim)
-        self.context_gate = keras.Sequential(
-            [
-                layers.Dense(hidden_dim, activation="relu"),
-                layers.Dense(hidden_dim, activation="sigmoid"),
-            ]
-        )
-        self.context_scale_logit = self.add_weight(shape=(), initializer="zeros", name="context_scale_logit")
-
         if self.per_node_embedding:
             self.node_out_kernel = self.add_weight(
                 shape=(self.num_genes, hidden_dim),
@@ -74,6 +79,17 @@ class BaseLineGATHybridContext(keras.Model):
                 initializer="zeros",
                 name="node_out_bias",
             )
+            if self.predict_uncertainty:
+                self.node_logvar_kernel = self.add_weight(
+                    shape=(self.num_genes, hidden_dim),
+                    initializer="glorot_uniform",
+                    name="node_logvar_kernel",
+                )
+                self.node_logvar_bias = self.add_weight(
+                    shape=(self.num_genes,),
+                    initializer="zeros",
+                    name="node_logvar_bias",
+                )
 
         if self.use_drug_fp_embedding:
             if fingerprint_dim <= 0:
@@ -121,6 +137,8 @@ class BaseLineGATHybridContext(keras.Model):
             self.ffn_dropouts.append(layers.Dropout(dropout))
 
         self.dense = layers.Dense(1)
+        if self.predict_uncertainty:
+            self.dense_logvar = layers.Dense(1)
 
     def _parse_inputs(self, inputs):
         if self.use_sparse_adj:
@@ -144,24 +162,32 @@ class BaseLineGATHybridContext(keras.Model):
             return ctl_expr[..., 0]
         raise ValueError("ctl_expr must be (B, N), (B, N, 1) or (B, N, 2)")
 
-    def _build_cell_context(self, ctl_expr_base, cell_idx):
+    def _build_cell_context(self, ctl_expr_base, cell_idx, training=False):
         ctl_context = self.context_norm(ctl_expr_base)
-        ctl_context = self.context_encoder(ctl_context)
-        context_delta = self.context_delta(ctl_context)
-        context_scale = tf.nn.softplus(self.context_scale_logit)
+        ctl_context = self.context_encoder(ctl_context, training=training)
 
         if self.use_cell_embedding:
             cell_base = self.cell_embedding(cell_idx)
-            gate_input = tf.concat([cell_base, ctl_context], axis=-1)
-            context_gate = self.context_gate(gate_input)
-            fused_context = cell_base + context_scale * context_gate * context_delta
+            cell_base = self.cell_dropout(cell_base, training=training)
+            cell_scale = tf.nn.sigmoid(self.cell_mix_logit)
+            context_scale = 1.0 - cell_scale
+            fused_context = cell_scale * cell_base + context_scale * ctl_context
         else:
-            context_gate = self.context_gate(ctl_context)
-            fused_context = context_scale * context_gate * context_delta
+            fused_context = ctl_context
 
         return fused_context
 
-    def call(self, inputs, return_embeddings=False, output_attention=False):
+    def get_logged_scales(self):
+        scales = {"target_scale": float(tf.nn.softplus(self.target_scale_logit).numpy())}
+        if self.cell_mix_logit is not None:
+            cell_scale = float(tf.nn.sigmoid(self.cell_mix_logit).numpy())
+            scales["cell_scale"] = cell_scale
+            scales["context_scale"] = 1.0 - cell_scale
+        else:
+            scales["context_scale"] = 1.0
+        return scales
+
+    def call(self, inputs, training=False, return_embeddings=False, output_attention=False):
         graph_a, graph_b, ctl_expr, drug_targets, cell_idx, drug_fp = self._parse_inputs(inputs)
 
         ctl_expr_base = self._get_ctl_base(ctl_expr)
@@ -175,11 +201,11 @@ class BaseLineGATHybridContext(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
-        fused_context = self._build_cell_context(ctl_expr_base, cell_idx)
+        fused_context = self._build_cell_context(ctl_expr_base, cell_idx, training=training)
         x = x + fused_context[:, None, :]
 
         if self.use_drug_fp_embedding:
-            film = self.drug_film(drug_fp)
+            film = self.drug_film(drug_fp, training=training)
             gamma, beta = tf.split(film, num_or_size_splits=2, axis=-1)
             gamma = tf.tanh(gamma)
             x = x * (1.0 + gamma[:, None, :]) + beta[:, None, :]
@@ -200,25 +226,36 @@ class BaseLineGATHybridContext(keras.Model):
                     attentions.append(attn)
                 else:
                     x_attn = self.gat_layers[i]([graph_a, x_in])
-            x_attn = self.attn_dropouts[i](x_attn)
+            x_attn = self.attn_dropouts[i](x_attn, training=training)
             x_in = self.attn_norms[i](x_attn + res)
-            x_ffn = self.ffn_layers[i](x_in)
-            x_ffn = self.ffn_dropouts[i](x_ffn)
+            x_ffn = self.ffn_layers[i](x_in, training=training)
+            x_ffn = self.ffn_dropouts[i](x_ffn, training=training)
             x_in = self.ffn_norms[i](x_in + x_ffn)
 
         if self.per_node_embedding:
             if tf.executing_eagerly() and int(x_in.shape[1]) != self.num_genes:
                 raise ValueError(f"num_genes mismatch: model={self.num_genes}, input={int(x_in.shape[1])}")
             predicted = tf.einsum("bnh,nh->bn", x_in, self.node_out_kernel) + self.node_out_bias[None, :]
+            if self.predict_uncertainty:
+                logvar = tf.einsum("bnh,nh->bn", x_in, self.node_logvar_kernel) + self.node_logvar_bias[None, :]
         else:
             predicted = tf.squeeze(self.dense(x_in), axis=-1)
+            if self.predict_uncertainty:
+                logvar = tf.squeeze(self.dense_logvar(x_in), axis=-1)
+
+        if self.predict_uncertainty:
+            predicted_out = tf.stack([predicted, logvar], axis=-1)
+        else:
+            predicted_out = predicted
 
         if bool(return_embeddings) and bool(output_attention):
-            return predicted, x_in, attentions
+            return predicted_out, x_in, attentions
         if bool(return_embeddings):
-            return predicted, x_in
+            return predicted_out, x_in
         if bool(output_attention):
-            return predicted, attentions
+            return predicted_out, attentions
         if self.use_residual:
+            if self.predict_uncertainty:
+                return tf.stack([ctl_expr_base + predicted, logvar], axis=-1)
             return ctl_expr_base + predicted
-        return predicted
+        return predicted_out

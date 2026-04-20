@@ -33,7 +33,7 @@ class GraphAttentionLayerContextDense(layers.Layer):
                     name=f"attn_kernel_{i}",
                 )
             )
-            self.context_self_kernels.append(
+            self.context_neigh_kernels.append(
                 self.add_weight(
                     shape=(context_dim, self.output_dim),
                     initializer="glorot_uniform",

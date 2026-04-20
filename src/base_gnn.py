@@ -166,11 +166,11 @@ class GraphAttentionLayerSparse(layers.Layer):
         return output
 
 class BaseLineGAT(keras.Model):
-    def __init__(self, num_genes, num_cells=10, num_drugs=None, fingerprint_dim=0, 
-                    hidden_dim=64, num_heads=4, 
-                    dropout=0.2, use_residual=False, 
-                    use_drug_fp_embedding= True, attention_layer_number = 10, output_after_embedding=False, per_node_embedding=False,
-                    use_sparse_adj=False, use_cell_embedding=True, **kwargs):
+    def __init__(self, num_genes, num_cells=10, num_drugs=None, fingerprint_dim=0,
+                    hidden_dim=64, num_heads=4,
+                    dropout=0.2, use_residual=False,
+                    use_drug_fp_embedding=True, attention_layer_number=10, output_after_embedding=False, per_node_embedding=False,
+                    use_sparse_adj=False, use_cell_embedding=True, predict_uncertainty=False, **kwargs):
         super(BaseLineGAT, self).__init__(**kwargs)
         self.num_genes = int(num_genes)
         self.use_residual = use_residual
@@ -181,6 +181,7 @@ class BaseLineGAT(keras.Model):
         self.per_node_embedding = bool(per_node_embedding)
         self.use_sparse_adj = bool(use_sparse_adj)
         self.use_cell_embedding = bool(use_cell_embedding)
+        self.predict_uncertainty = bool(predict_uncertainty)
         # Embedding for [Ctl, Target, Cell]
         self.expr_embedding = layers.Dense(hidden_dim, activation="relu")
         # 为了防止target 信号被淹没，不在和 expression 信号合并，而是单独投影到 hidden_dim 维度,并对其进行缩放
@@ -198,6 +199,17 @@ class BaseLineGAT(keras.Model):
                 initializer="zeros",
                 name="node_out_bias",
             )
+            if self.predict_uncertainty:
+                self.node_logvar_kernel = self.add_weight(
+                    shape=(self.num_genes, hidden_dim),
+                    initializer="glorot_uniform",
+                    name="node_logvar_kernel",
+                )
+                self.node_logvar_bias = self.add_weight(
+                    shape=(self.num_genes,),
+                    initializer="zeros",
+                    name="node_logvar_bias",
+                )
         
         if self.use_cell_embedding:
             self.cell_embedding = layers.Embedding(num_cells, hidden_dim)
@@ -248,7 +260,9 @@ class BaseLineGAT(keras.Model):
             self.ffn_dropouts.append(layers.Dropout(dropout))
 
         # Output
-        self.dense = layers.Dense(1) # Output delta
+        self.dense = layers.Dense(1) # Output delta / mean
+        if self.predict_uncertainty:
+            self.dense_logvar = layers.Dense(1)
         
         # Optional: Fusion layer if we concat
         self.fusion = layers.Concatenate(axis=-1)
@@ -329,16 +343,27 @@ class BaseLineGAT(keras.Model):
             if tf.executing_eagerly() and int(x_in.shape[1]) != self.num_genes:
                 raise ValueError(f"num_genes mismatch: model={self.num_genes}, input={int(x_in.shape[1])}")
             predicted = tf.einsum("bnh,nh->bn", x_in, self.node_out_kernel) + self.node_out_bias[None, :]
+            if self.predict_uncertainty:
+                logvar = tf.einsum("bnh,nh->bn", x_in, self.node_logvar_kernel) + self.node_logvar_bias[None, :]
         else:
             out = self.dense(x_in)
             predicted = tf.squeeze(out, axis=-1)
+            if self.predict_uncertainty:
+                logvar = tf.squeeze(self.dense_logvar(x_in), axis=-1)
+
+        if self.predict_uncertainty:
+            predicted_out = tf.stack([predicted, logvar], axis=-1)
+        else:
+            predicted_out = predicted
 
         if bool(return_embeddings) and bool(output_attention):
-            return predicted, x_in, attentions
+            return predicted_out, x_in, attentions
         if bool(return_embeddings):
-            return predicted, x_in
+            return predicted_out, x_in
         if bool(output_attention):
-            return predicted, attentions
+            return predicted_out, attentions
         if self.use_residual:
+            if self.predict_uncertainty:
+                return tf.stack([ctl_expr_base + predicted, logvar], axis=-1)
             return ctl_expr_base + predicted
-        return predicted
+        return predicted_out

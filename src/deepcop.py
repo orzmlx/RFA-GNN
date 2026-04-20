@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras import layers, models
+from tensorflow.keras import layers
 
 class DeepCOP(tf.keras.Model):
     """
@@ -26,6 +26,7 @@ class DeepCOP(tf.keras.Model):
         go_matrix=None,
         original_architecture=False,
         hidden_dim=1024,
+        predict_uncertainty=False,
         **kwargs,
     ):
         super(DeepCOP, self).__init__(**kwargs)
@@ -34,6 +35,7 @@ class DeepCOP(tf.keras.Model):
         self.drug_dim = int(drug_dim)
         self.dropout_rate = float(dropout)
         self.original_architecture = bool(original_architecture)
+        self.predict_uncertainty = bool(predict_uncertainty)
         
         # 处理 GO Matrix
         self.go_matrix = None
@@ -74,6 +76,8 @@ class DeepCOP(tf.keras.Model):
         # Note: Original DeepCOP used Softmax for classification. 
         # We use Linear for regression to match RFA-GNN task.
         self.dense_out = layers.Dense(num_genes, name='output')
+        if self.predict_uncertainty:
+            self.dense_logvar = layers.Dense(num_genes, name='output_logvar')
         
     def call(self, inputs, training=False):
         """
@@ -115,12 +119,17 @@ class DeepCOP(tf.keras.Model):
         
         # 4. Output
         out = self.dense_out(x)
+        if self.predict_uncertainty:
+            logvar = self.dense_logvar(x)
         
         # 5. Residual Connection (Optional but Recommended)
         if self.use_residual:
-            return ctl_expr + out
+            mean_out = ctl_expr + out
         else:
-            return out
+            mean_out = out
+        if self.predict_uncertainty:
+            return tf.stack([mean_out, logvar], axis=-1)
+        return mean_out
 
     def get_config(self):
         config = super(DeepCOP, self).get_config()
@@ -131,5 +140,6 @@ class DeepCOP(tf.keras.Model):
             "use_residual": self.use_residual,
             "original_architecture": self.original_architecture,
             "hidden_dim": self.hidden_dim,
+            "predict_uncertainty": self.predict_uncertainty,
         })
         return config

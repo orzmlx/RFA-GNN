@@ -1,16 +1,17 @@
 % !TeX root = thesis.tex
 \chapter{Results and Discussion}
-This chapter reports the main results and then gives a closer look at the model behaviour. The aim is not only to show which model gives the best score. The aim is also to show how the scores change across settings and what the models learn from the data.
+This chapter reports the main results and further investigates the model behaviour. Specifically, it compares the predictive performance of different architectures, analyses how the scores change across different experimental settings, and interprets what the proposed model learns from the biological data.
+
 \section{Evaluation framework}
-\noindent All experiments in this chapter use the L1000 landmark setting with 978 genes. Each sample includes a matched control profile, drug related features, and cell context information. The target is the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. All models use this same target.
+\noindent All experiments in this chapter are conducted on the L1000 landmark setting with 978 genes. For every sample, the input consists of a matched control profile, drug related features, and cell context information. The target is defined as the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$, which is consistently used across all evaluated models.
 
-\noindent The evaluation includes three models. The first model is a DeepCOP style baseline. It uses the control profile and drug features in a feed forward network. The second model is GSNN, which is a graph based baseline with message passing~\cite{evans2024gsnn}. The third model is the proposed method. It is written as CAGNN in this chapter. CAGNN stands for Counterfactual Attention GNN.
+\noindent The evaluation framework compares three different models. The first is a DeepCOP style baseline, which concatenates the control profile and drug features into a standard feed-forward network. The second model is GSNN \cite{evans2024gsnn}, a graph-based baseline that utilizes message passing. The third model is our proposed method, referred to as Counterfactual Attention GNN, or CAGNN, throughout this chapter.
 
-\noindent The evaluation uses three split settings. The warm split tests unseen treatment and control pairs under the same broad data setting. The cold drug split removes test drugs from training. The cold cell split removes test cell lines from training. The cold cell split is expected to be the hardest. A new cell line changes the baseline expression state. It can also change how the same drug acts in the cell.
+\noindent To rigorously assess model generalization, we use three distinct data split settings. The warm split tests unseen treatment and control pairs sampled from the same broad data distribution as the training set. The cold drug split holds out specific drugs from the training phase, while the cold cell split entirely removes test cell lines from training. The cold cell split is expected to be the most challenging setting, as a novel cell line not only changes the baseline expression state but can also fundamentally alter the cellular response to a familiar drug.
 
-\noindent In addition to these standard splits, this thesis can also use restricted training settings as a stronger stress test. These settings do not define a new metric. They define a more limited training condition. In a single cell line training setting, the model is trained only on samples from one cell line and is then tested on a broader set of samples. In a single drug training setting, the model is trained only on samples from one drug and is then tested on a broader set of samples. These settings are useful for studying extreme generalization under severe data restriction.
+\noindent Beyond these standard splits, this thesis also introduces a training data budget evaluation. Rather than defining a new metric, this strategy systematically restricts the amount of available training data—capping the number of samples per cell-drug pair—while keeping the test set fixed. This approach helps to study data efficiency, clarifying how quickly each model's performance improves as more training instances become available.
 
-\noindent Two metrics give the main summary. Mean squared error measures numerical accuracy. A lower value means that the prediction is closer to the observed response. Sample wise Pearson correlation coefficient measures whether the predicted response follows the gene level pattern in each sample. A higher value means better agreement in the up and down trend across genes. The two metrics describe different parts of model quality. MSE focuses on absolute error. PCC focuses on the shape of the response.
+\noindent The overall prediction quality is summarized using two main metrics. Mean squared error measures the numerical accuracy, where a lower value indicates that the prediction is closer to the observed response in absolute terms. Meanwhile, the sample-wise Pearson correlation coefficient evaluates whether the predicted response correctly captures the shape and trend of gene expression changes. Together, these two metrics provide a comprehensive view of model performance. The mean squared error focuses on the magnitude of the error, whereas the correlation coefficient focuses on the biological pattern of the response.
 
 \begin{table}[H]
 \centering
@@ -24,7 +25,7 @@ Dataset & LINCS L1000 landmark genes, 978 genes \\
 Prediction target & Differential response $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ \\
 Models & DeepCOP baseline, GSNN, CAGNN \\
 Splits & Warm, cold drug, cold cell \\
-Restricted training settings & Single cell line training, single drug training \\
+Training data budget setting & One shot and fraction based training per cell and drug pair \\
 Main metrics & Test MSE and sample wise test PCC \\
 Matching policy & Split before match, isolated control pools for train and test \\
 Test pairing & One treatment profile matched to one control sample \\
@@ -135,7 +136,7 @@ CAGNN & Cold cell & 0.3964 & 0.4127 \\
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.94\linewidth]{figures/top_gene_precision_results.png}
+\includegraphics[width=1.18\linewidth]{figures/top_gene_precision_results.png}
 \caption{Top gene precision computed from the exported prediction files with the XPert style definition. The left panel shows Pos P@20 and the right panel shows Neg P@20 for DeepCOP, GSNN, and CAGNN across the three evaluation splits.}
 \label{fig:top_gene_placeholder}
 \end{figure}
@@ -239,54 +240,187 @@ CAGNN & 0.0212 & 0.1466 \\
 \end{figure}
 
 \subsection{Ablation analysis}
-\noindent Correlation based results are also useful for ablation analysis because they show whether each component helps preserve the response pattern across genes. The examples below focus on CAGNN because it is the main model in this thesis and it has the richest set of configurable parts. Removing the counterfactual regularization causes a small drop, and the drop is clearer in the harder split. Removing the drug fingerprint branch causes another drop. This suggests that target annotations and structural features give different but useful information. Removing the cell embedding also weakens the model. This is expected because perturbation response depends on cellular context. Changing training from multiple control matches to a single match also causes a small but steady decrease.
+\noindent Correlation based results are also useful for ablation analysis because they show whether each component helps preserve the response pattern across genes. The comparison below focuses on how cell information is introduced into the graph model. Three variants are considered. The first variant uses only a cell identity embedding. The second replaces cell identity with a cell context derived from the control profile. The third keeps the same cell context and also injects it into the attention score as an extra context dependent term.
 
-\noindent These trends support a simple interpretation. The final performance does not come from one single trick. It comes from the combination of graph propagation, drug related features, and explicit conditioning on cellular context.
+\noindent Table~\ref{tab:context_ablation} shows the corresponding test results. Replacing cell identity with a cell context gives a small PCC gain in the warm and cold drug settings, but the gain is much larger in the cold cell setting. This pattern suggests that a sample specific cell context is more useful than a fixed cell label when the model must generalize to unseen cell lines. Adding context aware attention on top of the cell context gives another improvement in the warm and cold drug settings. In the cold cell setting, the PCC gain is very small, but it stays positive. The MSE pattern is mixed. It improves slightly in warm and cold drug, while cold cell becomes slightly worse than the cell context only variant. This suggests that context aware attention mainly helps preserve the response pattern rather than uniformly reducing absolute error.
+
+\noindent These results also clarify the different roles of context in the model. When context is added to the node features, it changes what each node representation is. It changes the sample specific state carried by each gene node before message passing starts. When context is added again inside attention, it changes how strongly nodes exchange information with their neighbors. The first affects node content. The second affects message passing. The gains in Table~\ref{tab:context_ablation} suggest that both roles are useful, but the larger benefit comes from replacing fixed cell identity with a cell context derived from the control profile.
 
 \begin{table}[H]
 \centering
-\caption{Representative ablation results for CAGNN. The values are placeholders.}
-\label{tab:ablation_gat}
-\begin{tabular}{lcc}
+\caption{Comparison of cell information variants in CAGNN. The table reports test MSE and test PCC for three ways of using cell related information.}
+\label{tab:context_ablation}
+\begin{tabular}{llcc}
 \hline
-Variant & Cold drug PCC & Cold cell PCC \\
+Variant & Split & Test MSE & Test PCC \\
 \hline
-Full CAGNN & 0.63 & 0.49 \\
-Without counterfactual regularization & 0.60 & 0.45 \\
-Without drug fingerprint embedding & 0.58 & 0.43 \\
-Without cell embedding & 0.56 & 0.40 \\
-Single control match in training & 0.59 & 0.44 \\
+Cell identity only & Warm & 0.8567 & 0.5364 \\
+Cell identity only & Cold drug & 0.9891 & 0.5174 \\
+Cell identity only & Cold cell & 1.6983 & 0.3709 \\
+Cell Context only & Warm & 0.8571 & 0.5400 \\
+Cell Context only & Cold drug & 0.9866 & 0.5239 \\
+Cell Context only & Cold cell & 0.7943 & 0.4830 \\
+Cell Context + context attention & Warm & 0.8539 & 0.5457 \\
+Cell Context + context attention & Cold drug & 0.9771 & 0.5312 \\
+Cell Context + context attention & Cold cell & 0.8113 & 0.4834 \\
 \hline
 \end{tabular}
 \end{table}
 
-\noindent A second set of ablations can also be added for the baseline family. In the current code, DeepCOP supports different drug feature settings such as target only, fingerprint only, and target plus fingerprint. This makes it possible to test whether the baseline benefits more from chemical descriptors, target annotations, or the combination of both. This comparison should stay focused on the most useful settings.
+\begin{figure}[H]
+\centering
+\begin{minipage}[t]{0.32\linewidth}
+\vspace{0pt}
+\centering
+\textbf{Warm}\\[2mm]
+\begin{tikzpicture}[x=0.95cm,y=8cm]
+    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
+    \draw[black!60] (0,0) -- (4.0,0);
+    \fill[gray!25] (0.1,0) rectangle (0.9,0.1964);
+    \node[font=\small] at (0.5,-0.025) {Cell ID};
+    \node[font=\small] at (0.5,0.212) {0.5364};
 
-\section{Restricted training settings}
-This section introduces a stricter evaluation setting. The aim is to test whether the model can learn a useful response rule from a very limited source domain and then transfer it to a broader test set. These settings are not new metrics. They are additional generalization settings under strong data restriction.
+    \fill[purple!45] (1.55,0.1964) rectangle (2.35,0.2000);
+    \node[font=\small] at (1.95,-0.025) {+Ctx};
+    \node[font=\small] at (1.95,0.224) {+0.0036};
 
-\subsection{Single cell line training}
-\noindent In the single cell line training setting, the model is trained only on samples from one cell line. The test set then includes a broader collection of samples outside that restricted training source. This setting asks whether the model can learn transferable drug response patterns from one cellular context and apply them to other contexts. It is a strong test because perturbation response is highly dependent on cell state.
+    \fill[purple!20] (3.00,0.2000) rectangle (3.80,0.2057);
+    \node[font=\small] at (3.40,-0.025) {+Attn};
+    \node[font=\small] at (3.40,0.236) {+0.0057};
+\end{tikzpicture}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.32\linewidth}
+\vspace{0pt}
+\centering
+\textbf{Cold drug}\\[2mm]
+\begin{tikzpicture}[x=0.95cm,y=8cm]
+    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
+    \draw[black!60] (0,0) -- (4.0,0);
+    \fill[gray!25] (0.1,0) rectangle (0.9,0.1774);
+    \node[font=\small] at (0.5,-0.025) {Cell ID};
+    \node[font=\small] at (0.5,0.193) {0.5174};
 
-\noindent The same evaluation metrics can be used in this setting. MSE measures numerical error. PCC measures agreement in response shape. Top gene precision measures whether the strongest regulated genes are recovered. Regulation sign accuracy measures whether the direction of regulation is predicted correctly. Together, these metrics show whether the model keeps useful information when training data come from only one cell line.
+    \fill[purple!45] (1.55,0.1774) rectangle (2.35,0.1839);
+    \node[font=\small] at (1.95,-0.025) {+Ctx};
+    \node[font=\small] at (1.95,0.208) {+0.0065};
 
-\subsection{Single drug training}
-\noindent In the single drug training setting, the model is trained only on samples from one drug. The test set again includes a broader collection of samples outside that restricted training source. This setting asks whether the model can learn a response rule from one perturbation and transfer that rule to other perturbations. This is an extreme setting, but it is useful for studying how much the model depends on drug specific information.
+    \fill[purple!20] (3.00,0.1839) rectangle (3.80,0.1912);
+    \node[font=\small] at (3.40,-0.025) {+Attn};
+    \node[font=\small] at (3.40,0.223) {+0.0073};
+\end{tikzpicture}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.32\linewidth}
+\vspace{0pt}
+\centering
+\textbf{Cold cell}\\[2mm]
+\vspace{1.8mm}
+\begin{tikzpicture}[x=0.95cm,y=8cm]
+    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
+    \draw[black!60] (0,0) -- (4.0,0);
+    \fill[gray!25] (0.1,0) rectangle (0.9,0.0309);
+    \node[font=\small] at (0.5,-0.025) {Cell ID};
+    \node[font=\small] at (0.5,0.046) {0.3709};
 
-\noindent The same metric groups remain useful in this setting. Error metrics show whether the predicted values stay close to the true response. Correlation and sign based metrics show whether the direction and overall pattern of the response are preserved. Precision metrics show whether the model still recovers the most responsive genes. If future experiments are added, this section can be used to compare how strongly performance depends on diversity in the training source.
+    \fill[purple!45] (1.55,0.0309) rectangle (2.35,0.1430);
+    \node[font=\small] at (1.95,-0.025) {+Ctx};
+    \node[font=\small] at (1.95,0.168) {+0.1121};
+
+    \fill[purple!20] (3.00,0.1430) rectangle (3.80,0.1434);
+    \node[font=\small] at (3.40,-0.025) {+Attn};
+    \node[font=\small] at (3.40,0.185) {+0.0004};
+\end{tikzpicture}
+\end{minipage}
+\caption{Incremental PCC gains from different ways of using cell related information in CAGNN. Each panel starts from the cell identity only variant. The second bar shows the gain from replacing cell identity with a cell context derived from the control profile. The third bar shows the additional gain from injecting the same context into the attention score.}
+\label{fig:context_ablation_increment}
+\end{figure}
+
+\subsection{Hybrid context weights}
+\noindent The ablation results above show how prediction quality changes when cell information is introduced in different ways. In the hybrid context model, the training log also reports the effective weights of the cell identity branch and the control derived context branch. Tracking these two weights over training makes it possible to examine how the model balances the two sources of cell information. This analysis is especially relevant for the cold cell setting. If the weight on cell identity becomes too large, the model may rely too much on a fixed label and generalize less well to unseen cell lines. Figure~\ref{fig:hybrid_context_weights_placeholder} shows a suitable layout for this analysis.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{figures/hybrid_context_weights_placeholder.png}
+\caption{Illustrative evolution of the two hybrid context weights across training. The figure shows a possible layout for tracking the weight on the cell identity branch and the weight on the control derived context branch over epochs. The values are placeholders for figure design only.}
+\label{fig:hybrid_context_weights_placeholder}
+\end{figure}
+
+\noindent A second ablation study can be done for the baseline family. In the current code, DeepCOP supports different drug feature settings such as target only, fingerprint only, and target plus fingerprint. This makes it possible to test whether the baseline benefits more from chemical descriptors, target annotations, or the combination of both. The comparison should stay focused on the most useful settings.
+
+\section{Uncertainty analysis}
+The uncertainty aware version of the proposed model predicts both a mean response and a gene wise variance term. This makes it possible to study not only prediction accuracy, but also prediction reliability. The analyses in this section use the exported mean prediction $\mu$, the predicted variance $\sigma^{2}$, and the derived standard deviation $\sigma$. The aim is to examine whether the uncertainty output reflects real prediction difficulty and whether it helps explain the behaviour of the model across different evaluation settings.
+
+\subsection{Uncertainty across splits}
+\noindent A natural starting point is to compare the uncertainty distribution in the warm, cold drug, and cold cell settings. For each test sample, the gene wise uncertainty can be summarized by the average predicted standard deviation. These sample level values can then be compared across splits with a box plot or violin plot. This analysis is useful because the three splits represent different types of distribution shift. If the uncertainty head is meaningful, the harder settings should show a broader or higher uncertainty distribution. In particular, the cold cell split is expected to have the highest uncertainty because unseen cell lines introduce a stronger change in baseline state.
+
+\subsection{Uncertainty and MSE}
+\noindent The next analysis studies whether uncertainty is associated with absolute prediction error. For each test sample, the average predicted standard deviation can be plotted against the sample wise MSE. A positive relationship would show that the model tends to assign larger uncertainty to samples that are harder to predict in absolute value. This does not prove perfect calibration, but it does show whether the uncertainty output contains useful information about risk.
+
+\subsection{Uncertainty and PCC}
+\noindent A related analysis compares uncertainty with sample wise PCC. Here the same sample level uncertainty summary is compared with the PCC value of each sample. Since larger uncertainty should correspond to harder prediction, a negative relationship is expected. This view complements the MSE analysis. MSE focuses on absolute error size, while PCC focuses on whether the predicted response preserves the gene level pattern. Together, the two plots show whether uncertainty tracks both numerical error and loss of biological response pattern.
+
+\subsection{Stratified performance by uncertainty}
+\noindent The test samples can also be grouped by uncertainty level. A simple way is to divide them into low, medium, and high uncertainty groups using quantiles of sample level $\sigma$. The average MSE, PCC, top gene precision, and regulation sign accuracy can then be reported for each group. This analysis shows whether the uncertainty output can separate easier predictions from harder ones. If the grouping is informative, the low uncertainty group should have better predictive performance than the high uncertainty group. Figure~\ref{fig:uncertainty_summary_placeholder} shows one possible layout for these summary analyses.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/uncertainty_summary_placeholder.png}
+\caption{Illustrative uncertainty analysis panels. The figure shows a possible layout for comparing uncertainty across splits, relating sample level uncertainty to sample wise MSE and PCC, and summarizing performance after grouping samples by uncertainty level. The values are placeholders for figure design only.}
+\label{fig:uncertainty_summary_placeholder}
+\end{figure}
+
+\subsection{Case studies with mean and uncertainty bands}
+\noindent The uncertainty output also makes the qualitative case study more informative. Instead of showing only the predicted mean, the figure can show the mean together with uncertainty bands such as $\mu \pm \sigma$ or $\mu \pm 2\sigma$ for the most responsive genes in one selected sample. This makes it easier to see whether large errors occur in positions where the model already signals low confidence. A comparison between one low uncertainty sample and one high uncertainty sample would be especially useful. This type of case study connects the summary statistics to an interpretable prediction example. Figure~\ref{fig:uncertainty_case_placeholder} shows a suitable placeholder design for this type of comparison.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/uncertainty_case_study_placeholder.png}
+\caption{Illustrative case study with predictive uncertainty bands. The left panel shows a sample with lower uncertainty and tighter bands, while the right panel shows a sample with higher uncertainty and wider bands. The values are placeholders for figure design only.}
+\label{fig:uncertainty_case_placeholder}
+\end{figure}
+
+\section{Performance with reduced training data}
+This section studies how model performance changes when the amount of training data is reduced. The focus here is data efficiency. The aim is to see how much performance each model can retain when only a limited part of the training set is available.
+
+\subsection{How the training set is reduced}
+\noindent This analysis starts from a fixed warm split. The test set is kept unchanged for all budget levels. The training set is first built in the usual way as paired treatment control examples. Each paired example has a cell line label and a drug identity. A cell drug pair means all training examples that share the same cell line and the same drug.
+
+\noindent The budget is then applied inside each cell drug pair. In the one shot setting, only one paired training example is kept for each cell drug pair. In the 20\%, 30\%, 50\%, and 80\% settings, the corresponding fraction of training examples is kept within each pair. For example, 20\% means that only 20\% of the available paired training examples are kept for that cell drug pair. The examples are sampled randomly within each pair. In the implementation, the kept sample count is rounded up, so each existing pair still contributes at least one example for any positive budget.
+
+\noindent This design keeps the test set fixed and changes only the amount of training data. It also avoids letting large cell drug pairs dominate the whole analysis. Each model is trained under the same budget schedule and evaluated on the same fixed test set. The main metric in this analysis is sample wise PCC. PCC reflects whether the predicted response preserves the gene level pattern within each sample. MSE can also be reported, but the main goal is to track how quickly the response pattern emerges as training data increase.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/data_efficiency_placeholder.png}
+\caption{Illustrative data efficiency curves for DeepCOP, GSNN, and CAGNN on a fixed warm split. The figure is a placeholder for the planned budget based evaluation and shows the intended layout of the final comparison.}
+\label{fig:data_efficiency_placeholder}
+\end{figure}
+
+\subsection{What this setting shows}
+\noindent The budget curves give a direct view of data efficiency. A model with a stronger inductive bias should reach a higher PCC when only a small amount of training data is available. The analysis is also useful for studying whether the model design helps when repeated examples for the same cell drug pair are limited.
 
 \section{Interpretation and case studies}
-A compact case study helps connect the summary metrics to one perturbation example. The aim is not to make a strong biological claim. The aim is to show how the predicted response compares with the observed response for one sample. This kind of example makes the benchmark easier to read because it shows which genes are recovered well and where the models still differ.
+A compact case study helps connect the summary metrics to concrete perturbation examples. One useful strategy is to group test samples by drug and summarize the sample wise PCC within each drug. This makes it possible to identify drugs that are predicted relatively well and drugs that remain difficult. A representative sample can then be selected for closer inspection. This kind of example makes the benchmark easier to read because it shows which genes are recovered well and where the models still differ.
 
-\noindent Figure~\ref{fig:case_study_placeholder} shows one sample from the cold drug split. The chosen perturbation has a fairly strong response, so the comparison is easier to read. The figure lists the genes with the largest absolute true response and compares the true values with the predictions from DeepCOP and GSNN. In this example, both models recover part of the sign pattern, but the predicted sizes still differ for several genes. This matches the earlier result that agreement in pattern and agreement in absolute value do not always appear together.
+\noindent Figure~\ref{fig:case_study_placeholder} shows one representative sample from the cold drug split, here the perturbation \texttt{BRD-A65767837} in the A549 cell line. The figure lists the genes with the largest absolute true response and compares the true values with the predictions from DeepCOP and GSNN. In this example, both models recover part of the sign pattern, but the predicted sizes still differ for several genes. This matches the earlier result that agreement in pattern and agreement in absolute value do not always appear together.
 
-\noindent A deeper interpretation study can still be added later for the sparse attention version of CAGNN. That type of analysis could connect predictive performance with graph level importance patterns. In this chapter, the case study stays focused on prediction behaviour.
+\noindent The notebook based case study also supports a second level of analysis for the attention based model. After ranking drugs by median sample wise PCC, the best and worst predicted drugs can be examined with drug specific attention summaries, top response genes, and high attention edges. These views are useful for interpretation, but the main text here stays focused on the prediction comparison itself.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.94\linewidth]{figures/case_study_prediction_example.png}
-\caption{Representative prediction case study from the cold drug split. The figure compares the true response with the predictions of DeepCOP and GSNN for the genes with the largest absolute response in one selected perturbation sample.}
+\caption{Representative prediction case study from the cold drug split. The figure compares the true response with the predictions of DeepCOP and GSNN for the genes with the largest absolute response in one selected perturbation sample, \texttt{BRD-A65767837} in A549.}
 \label{fig:case_study_placeholder}
+\end{figure}
+
+\noindent A second case study view summarizes how the attention based model distributes edge importance for well predicted and difficult drugs. Instead of showing a few globally shared edges, the figure pools the top non self edges selected separately for each drug. This makes it possible to see whether every drug still has a sparse set of highly weighted edges, even when the exact edge identity differs across perturbations.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/attention_best_worst_heatmap.png}
+\caption{Grouped attention heatmap for the best and worst predicted drugs in the cold drug split. Drugs are ordered by median sample wise PCC. For each drug, the heatmap includes the union of its top non self attention edges, and the values are normalized within each drug. Brighter regions show that each perturbation still relies on a sparse subset of edges, while the specific edge positions vary across drugs.}
+\label{fig:best_worst_drug_case_placeholder}
 \end{figure}
 
 \section{Discussion}

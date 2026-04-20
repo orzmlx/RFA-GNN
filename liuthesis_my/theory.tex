@@ -174,7 +174,7 @@ Here $\epsilon$ is a small constant for numerical stability.
 
 \section{Graph neural networks}
 \subsection{Graphs}
-A graph contains nodes and edges. Nodes represent objects. Edges represent relations between them. Figure~\ref{fig:graph_components} shows the main parts of a graph.
+A graph represents relations between a collection of entities. The entities are called nodes, and the relations are called edges. Mathematically, a graph is written as $G=(V,E)$, where $V$ is the set of nodes and $E$ is the set of edges. Each edge connects a pair of nodes. Figure~\ref{fig:graph_components} shows the main parts of a graph.
 
 \begin{figure}[H]
     \centering
@@ -183,13 +183,29 @@ A graph contains nodes and edges. Nodes represent objects. Edges represent relat
     \label{fig:graph_components}
 \end{figure}
 
-\noindent Let a graph have $N$ nodes. Its connectivity can be written as an adjacency matrix $A \in \mathbb{R}^{N \times N}$. If node features have dimension $F_{0}$, then the input node feature matrix is
+\subsection{Inputs}
+The input to a graph neural network is not only the graph structure. It usually includes the graph connectivity together with feature information attached to nodes, edges, or the whole graph. Let a graph have $N$ nodes. Its connectivity can be written as an adjacency matrix $A \in \mathbb{R}^{N \times N}$. If node features have dimension $F_{0}$, then the initial node feature matrix is
 \begin{equation}
 H^{(0)} \in \mathbb{R}^{N \times F_{0}}.
 \end{equation}
-The pair $(A,H^{(0)})$ is the basic input to a graph neural network.
+The pair $(A,H^{(0)})$ is the most basic input to a graph neural network.
 
-\noindent A graph can store information at several levels. A node can have its own attributes, such as an expression value or a node type. An edge can also have attributes, such as direction, sign, or weight. Some tasks also use graph level information for the whole graph. In many models, the main inputs are the graph connectivity and the node feature matrix. Edge and graph level information can also be used when it is available.
+\noindent In practice, the graph structure is often stored as an adjacency matrix. Figure~\ref{fig:graph_to_adj} shows this idea. The graph on the left is written as a matrix on the right. If there is an edge from node $N_j$ to node $N_i$, then the corresponding entry in the matrix is nonzero. If there is no edge, the entry is zero. This matrix form is convenient because the model can use it directly in message passing and neighborhood aggregation.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.81\linewidth]{figures/graph2adj.png}
+    \caption{From a graph to its adjacency matrix. The graph structure is converted into a matrix form so that graph connections can be used in computation.}
+    \label{fig:graph_to_adj}
+\end{figure}
+
+\noindent A node can have its own attributes, such as an expression value, a node type, or any other feature vector. An edge can also have attributes, such as direction, sign, or weight. Some tasks also use graph level information that is shared by the whole graph. So a GNN can use more than one kind of input. The adjacency matrix tells the model which nodes are connected. The node feature matrix tells the model what information is stored at each node. Edge and graph level attributes can provide extra information when they are available.
+
+\noindent One detail that needs attention is the self loop. A self loop means that a node is also connected to itself. In the adjacency matrix, this appears on the diagonal. Adding self loops is common in graph neural networks because it lets the model include the node's own feature during aggregation. Without self loops, a layer may only collect neighbor information at that stage and may lose the target node's own signal too quickly.
+
+\noindent This point is especially important in biological graphs. In a gene to gene interaction network, a self loop usually does not mean that a gene truly interacts with itself in the same way as it interacts with another gene. So the added diagonal entry should not be read as a biological claim. It is mainly a computational design that helps preserve self information during propagation.
+
+\noindent For this thesis, adding self loops does not necessarily mean that the model is introducing a wrong biological relation. It means that the layer is allowed to keep part of the current node state while also collecting neighbour signals. This can be useful, but it can also change the relative weight of self and neighbour information. So the effect of self loops should be understood as part of the model architecture rather than as part of the original graph semantics.
 
 \subsection{Graph direction}
 Graphs can be directed or undirected. In an undirected graph, the connection between two nodes has no direction. Information can move both ways. In a directed graph, each edge has a source node and a target node. So information flows from one node to another in a specific direction.
@@ -201,7 +217,7 @@ This is the core idea that lets a graph neural network use the graph structure. 
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/gnn_message_update_aggegrate.png}
+    \includegraphics[width=0.71\linewidth]{figures/gnn_message_update_aggegrate.png}
     \caption{Message passing in a single layer. Messages from neighbors are grouped together and then used to update the target node.}
     \label{fig:gnn_message_pass_update}
 \end{figure}
@@ -247,32 +263,16 @@ H^{(\ell)} \in \mathbb{R}^{B \times N \times F_{\ell}}.
 \end{equation}
 In this batch, the graph structure matrix $A \in \mathbb{R}^{N \times N}$ is the same for all samples. The model repeats these aggregation and update steps for several layers. After that, it gets the final robust node states.
 
-\subsection{Inputs}
-The input to a graph neural network is a graph and an initial node feature matrix. The network applies several message passing layers. Then it returns updated node representations. 
+\noindent The final node representation matrix is $H^{(L)} \in \mathbb{R}^{N \times F_{L}}$. The learned parameters of a GNN include the weight matrices inside each message passing layer. What happens next depends on the output form of the model.
 
-\noindent In practice, the graph structure is usually stored as an adjacency matrix. Figure~\ref{fig:graph_to_adj} shows this idea. The graph on the left is written as a matrix on the right. If there is an edge from node $N_j$ to node $N_i$, then the corresponding entry in the matrix is 1. If there is no edge, the entry is 0. This matrix form is convenient because the model can use it directly in message passing and neighborhood aggregation.
+\subsection{Output}
+Graph neural networks can produce outputs at different levels. A node level output gives one prediction for each node. This is used in node classification and node regression. An edge level output gives one prediction for a pair of nodes or for an existing edge. This is common in link prediction and edge classification. A graph level output gives one prediction for the whole graph. This is often used in graph classification or graph regression.
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\linewidth]{figures/graph2adj.png}
-    \caption{From a graph to its adjacency matrix. The graph structure is converted into a matrix form so that graph connections can be used in computation. The diagonal entries also show self loops.}
-    \label{fig:graph_to_adj}
-\end{figure}
+\noindent The output level determines how the final hidden states are used. For node level output, the model applies a predictor to each row of $H^{(L)}$. So each node keeps its own final representation and receives its own output. For edge level output, the model combines the representations of two nodes, and sometimes also an edge feature, to predict a relation between them. For graph level output, the model must reduce all node representations to one graph representation before the final prediction.
 
-\noindent One detail that needs attention is the self loop. A self loop means that a node is also connected to itself. In the adjacency matrix, this appears on the diagonal. Adding self loops is common in graph neural networks because it lets the model include the node's own feature during aggregation. Without self loops, a layer may only collect neighbor information at that stage and may lose the target node's own signal too quickly.
+\noindent This reduction step is usually called pooling or readout. Common choices are sum pooling, mean pooling, and max pooling. Sum pooling adds node vectors and can reflect graph size. Mean pooling gives a more normalized summary. Max pooling keeps the strongest value in each feature dimension. Some models also use attention based pooling, where the model learns which nodes should contribute more to the graph representation.
 
-\noindent This point is especially important in biological graphs. In a gene to gene interaction network, a self loop usually does not mean that a gene truly interacts with itself in the same way as it interacts with another gene. So the added diagonal entry should not be read as a biological claim. It is mainly a computational design that helps preserve self information during propagation.
-
-\noindent For this thesis, adding self loops does not necessarily mean that the model is introducing a wrong biological relation. It means that the layer is allowed to keep part of the current node state while also collecting neighbour signals. This can be useful, but it can also change the relative weight of self and neighbour information. So the effect of self loops should be understood as part of the model architecture rather than as part of the original graph semantics.
-
-\noindent The final node representation matrix is $H^{(L)} \in \mathbb{R}^{N \times F_{L}}$. The learned parameters of a GNN include the weight matrices inside each message passing layer. The final outputs of a GNN depend on the specific prediction task.
-
-\subsection{Prediction tasks}
-Graph neural networks can be used for different prediction tasks. In a node level task, the model predicts one output for each node. Examples include node classification and node regression. In an edge level task, the model predicts a property of an edge or predicts whether an edge should exist. This is often called link prediction. In a graph level task, the model produces one output for the whole graph. This usually needs a pooling or readout step that combines information from all nodes into one graph representation.
-
-\noindent The choice of task determines the final output layer. Node prediction uses one output for each node. Edge prediction uses a function of two node representations, and sometimes edge features as well. Graph prediction needs one extra step after message passing. The model must turn many node representations into one graph representation. This step is often called pooling or readout.
-
-\noindent Common pooling rules include sum, mean, and max. Sum pooling adds node vectors and can reflect graph size. Mean pooling averages them and gives a more normalized summary. Max pooling keeps the largest value in each feature dimension and focuses on the strongest signal. Some models also use attention based pooling, where the model learns which nodes should contribute more to the final graph representation. After pooling, the graph vector goes to a final predictor for graph level classification or regression.
+\noindent The output level is related to the final task, but the task itself can still vary within the same level. For example, node level output can be used for either classification or regression. Graph level output can also be used for either classification or regression. In this thesis, the model predicts a continuous perturbation response value for each gene. Each gene is treated as a node in the biological graph. So the thesis uses a node level output, and the task is node level regression.
 
 \subsection{Graph Convolutional Networks (GCN)}
 Figure~\ref{fig:gcn_pipeline} shows a simple view of graph convolutional propagation. Graph Convolutional Networks, or GCNs, are a standard GNN architecture~\cite{kipf2017semi}. The main idea is simple. Each node updates its representation by combining its own information with information from nearby nodes. The graph structure gives the weights. So connected nodes can share information.
@@ -286,9 +286,9 @@ Figure~\ref{fig:gcn_pipeline} shows a simple view of graph convolutional propaga
 
 \noindent A GCN usually has an input layer, one or more graph convolution layers, and an output layer. The input layer provides the initial node feature vectors. Each graph convolution layer updates the node representations by mixing information from neighbouring nodes. The output layer uses the final node representations for prediction. So deeper GCNs can use information from a larger part of the graph.
 
-\noindent The GCN used in this thesis follows the common formulation of Kipf and Welling~\cite{kipf2017semi}. This formulation is a simple and efficient graph convolution rule. It avoids more expensive spectral operations. Instead, it uses a normalized propagation matrix that is easy to compute in practice.
+\noindent The GCN used in this thesis follows the common formulation of Kipf and Welling~\cite{kipf2017semi}. This formulation gives a simple and efficient graph convolution rule. Instead of using a more complicated graph transformation, it uses a normalized propagation matrix that is easy to compute in practice.
 
-\noindent Let $I$ be the identity matrix. Let $\tilde{A}=A+I$ add self loops to the graph. Let $\tilde{D}$ be the degree matrix of $\tilde{A}$. Then the normalized propagation matrix is
+\noindent Let the graph have $N$ nodes. Then the adjacency matrix is $A \in \mathbb{R}^{N \times N}$. Let $I \in \mathbb{R}^{N \times N}$ be the identity matrix. Then $\tilde{A}=A+I \in \mathbb{R}^{N \times N}$ adds self loops to the graph. Let $\tilde{D} \in \mathbb{R}^{N \times N}$ be the degree matrix of $\tilde{A}$. Then the normalized propagation matrix is
 \begin{equation}
 \hat{A}=\tilde{D}^{-1/2}\tilde{A}\tilde{D}^{-1/2}.
 \end{equation}
@@ -296,7 +296,7 @@ A GCN layer computes
 \begin{equation}
 H^{(\ell+1)}=\sigma\!\left(\hat{A}H^{(\ell)}W^{(\ell)}\right),
 \end{equation}
-Here $H^{(\ell)} \in \mathbb{R}^{N \times F_{\ell}}$ and $W^{(\ell)} \in \mathbb{R}^{F_{\ell} \times F_{\ell+1}}$.
+where $\hat{A} \in \mathbb{R}^{N \times N}$, $H^{(\ell)} \in \mathbb{R}^{N \times F_{\ell}}$, $W^{(\ell)} \in \mathbb{R}^{F_{\ell} \times F_{\ell+1}}$, and $H^{(\ell+1)} \in \mathbb{R}^{N \times F_{\ell+1}}$. Here $F_{\ell}$ is the feature dimension of the node representation before the layer, and $F_{\ell+1}$ is the feature dimension after the layer. In other words, each row of $H^{(\ell)}$ is the feature vector of one node at layer $\ell$.
 
 \noindent This equation has three parts. The matrix multiplication $H^{(\ell)}W^{(\ell)}$ first transforms the node representations. The matrix $\hat{A}$ then mixes information across neighbouring nodes. The activation function $\sigma(\cdot)$ adds nonlinearity. Because of the self loops in $\tilde{A}$, a node also keeps part of its own information in the update.
 
@@ -334,7 +334,16 @@ x, & x \ge 0, \\
 \alpha x, & x < 0,
 \end{cases}
 \end{equation}
-Here $\alpha$ is a small positive constant. The normalized attention weight is
+Here $\alpha$ is a small positive constant.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.52\linewidth]{figures/leakyrelu_function.png}
+    \caption{LeakyReLU activation function. The negative side keeps a small slope instead of becoming flat.}
+    \label{fig:leakyrelu_function}
+\end{figure}
+
+\noindent Figure~\ref{fig:leakyrelu_function} shows the shape of LeakyReLU. It is used here because attention scores should still keep some information on the negative side. A standard ReLU would map all negative scores to zero and remove small differences between weakly relevant edges. The normalized attention weight is
 \begin{equation}
 \alpha_{u \rightarrow v}=\mathrm{softmax}_{u}\!\left(e_{u \rightarrow v}\right).
 \end{equation}
@@ -355,20 +364,22 @@ This relation is useful when model dimensions are chosen in practice.
 
 \noindent Multi head attention gives the model several different views of the same neighbourhood. One head may focus on one type of relation. Another head may focus on a different pattern. Using several heads can make the representation richer and more stable than using one attention rule alone.
 
-\subsection{Position-wise feed-forward network (FFN)}
-In Transformer style models, an attention layer is often followed by an FFN. Here FFN means a Position-wise Feed-Forward Network. This use of FFN is a bit different from the FFN at the beginning of this chapter. At the beginning, FFN refers to a whole feed-forward network with stacked dense layers. Here, Position-wise FFN refers to a small block. This block is applied to each node representation separately after attention.
+\noindent In many practical GAT blocks, the attention update is not the only operation. After neighbour information has been aggregated, the model often applies an additional feed forward transformation to each node representation. This helps refine the node state after the attention step.
+
+\subsubsection{Position-wise feed-forward block after GAT}
+In this context, FFN means a Position-wise Feed-Forward Network. This is different from the FFN introduced at the beginning of the chapter. There, FFN referred to a whole feed forward network with stacked dense layers. Here, it refers to a small block placed after the GAT attention update. The same transformation is applied to each node separately.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.65\linewidth]{figures/FFN.png}
+    \includegraphics[width=0.81\linewidth]{figures/FFN.png}
     \caption{A Position-wise Feed-Forward Network block. It consists of two linear transformations with a nonlinear activation function in between.}
     \label{fig:ffn_block}
 \end{figure}
 
-\noindent Figure~\ref{fig:ffn_block} shows the structure of this block. It applies two linear layers to the input node state. An activation function sits between these two linear layers. If the node state after attention is $h_{v}$, the model computes the FFN output like this:
+\noindent Figure~\ref{fig:ffn_block} shows the structure of this block. It applies two linear layers to the node state produced by the GAT attention step. An activation function sits between these two linear layers. If the node state after attention is $h_{v}$, the model computes the FFN output like this:
 \begin{equation}
 \mathrm{FFN}(h_{v}) = W_{2}\,\sigma(W_{1}h_{v}+b_{1})+b_{2}.
 \end{equation}
-Here $W_{1}$ and $W_{2}$ are the weight matrices for Linear 1 and Linear 2. Linear 1 expands the feature dimension. It projects the input state from dimension $d_{\mathrm{model}}$ to a larger dimension $d_{\mathrm{ff}}$. Often, $d_{\mathrm{ff}}$ is four times larger than $d_{\mathrm{model}}$. After the nonlinear activation function $\sigma$, Linear 2 compresses the features. It projects the state from $d_{\mathrm{ff}}$ back to the original dimension $d_{\mathrm{model}}$. The terms $b_{1}$ and $b_{2}$ are the bias vectors. The same parameters are shared across all nodes. But the transformation is applied to each node independently. In summary, the attention layer mixes information across neighbouring nodes. The Position-wise FFN then transforms each node representation further at its own position.
+Here $W_{1}$ and $W_{2}$ are the weight matrices for Linear 1 and Linear 2. Linear 1 expands the feature dimension. It projects the input state from dimension $d_{\mathrm{model}}$ to a larger dimension $d_{\mathrm{ff}}$. Often, $d_{\mathrm{ff}}$ is four times larger than $d_{\mathrm{model}}$. After the nonlinear activation function $\sigma$, Linear 2 compresses the features. It projects the state from $d_{\mathrm{ff}}$ back to the original dimension $d_{\mathrm{model}}$. The terms $b_{1}$ and $b_{2}$ are the bias vectors. The same parameters are shared across all nodes. But the transformation is applied to each node independently. In summary, the GAT attention layer mixes information across neighbouring nodes, and the position wise FFN then refines each node representation further.
 
 \noindent GAT can also be more useful when the graph is noisy or incomplete. In many real datasets, some edges are weak, indirect, or uncertain. A fixed aggregation rule treats all neighbours in a similar way after normalization. Attention can reduce the influence of less informative neighbours. It can also give more weight to neighbours that appear more relevant for the current prediction. This does not remove graph noise, but it can make the model more robust to it.

@@ -50,9 +50,9 @@ def main():
         },
     }
     colors = {
-        "DeepCOP": "#4C78A8",
-        "GSNN": "#F58518",
-        "CAGNN": "#54A24B",
+        "DeepCOP": "#AFC8E8",
+        "GSNN": "#F6C89A",
+        "CAGNN": "#BFDDB8",
     }
     metrics = {model_name: {} for model_name in model_files}
     for model_name, split_map in model_files.items():
@@ -81,8 +81,8 @@ def main():
         ax.set_ylim(0.0, 0.7)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-    axes[1].legend(frameon=False, loc="upper left")
-    fig.tight_layout()
+    axes[1].legend(frameon=False, loc="center left", bbox_to_anchor=(1.02, 0.5))
+    fig.tight_layout(rect=[0, 0, 0.88, 1])
     out_path = os.path.join(root, "liuthesis_my", "figures", "top_gene_precision_results.png")
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)

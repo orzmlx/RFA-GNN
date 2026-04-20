@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import os
 import sys
 
@@ -9,6 +10,13 @@ from scipy.stats import pearsonr
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from tensorflow import keras
+
+
+def _split_mean_logvar(pred):
+    pred = np.asarray(pred)
+    if pred.ndim == 3 and pred.shape[-1] == 2:
+        return pred[..., 0], pred[..., 1]
+    return pred, None
 
 
 def eval_pcc_mse(
@@ -40,6 +48,7 @@ def eval_pcc_mse(
         pred = model.predict([ctl, drug, cells], batch_size=batch_size, verbose=0)
     else:
         pred = model.predict([ctl, drug, cells, drug_fp], batch_size=batch_size, verbose=0)
+    pred, _ = _split_mean_logvar(pred)
 
     if bool(y_is_residual) and cell_mean is not None:
         cm = np.asarray(cell_mean, dtype=np.float32)[cells]
@@ -92,6 +101,25 @@ def _samplewise_metrics(y_true, y_pred, loss_mask):
         else:
             pcc[i] = 0.0
     return pcc, mse
+
+
+def _interval_metrics(y_true, mean_pred, logvar_pred, loss_mask):
+    if logvar_pred is None:
+        return None
+    valid_indices = np.where(np.asarray(loss_mask)[0] > 0)[0]
+    yt = np.asarray(y_true, dtype=np.float32)[:, valid_indices]
+    mu = np.asarray(mean_pred, dtype=np.float32)[:, valid_indices]
+    sigma = np.exp(0.5 * np.asarray(logvar_pred, dtype=np.float32)[:, valid_indices])
+    pred_lo = mu - sigma
+    pred_hi = mu + sigma
+    pcc_lo, mse_lo = _samplewise_metrics(yt, pred_lo, np.ones((1, yt.shape[1]), dtype=np.float32))
+    pcc_hi, mse_hi = _samplewise_metrics(yt, pred_hi, np.ones((1, yt.shape[1]), dtype=np.float32))
+    return {
+        "pcc_low": float(np.mean(pcc_lo)) if len(pcc_lo) > 0 else 0.0,
+        "pcc_high": float(np.mean(pcc_hi)) if len(pcc_hi) > 0 else 0.0,
+        "mse_low": float(np.mean(mse_lo)) if len(mse_lo) > 0 else 0.0,
+        "mse_high": float(np.mean(mse_hi)) if len(mse_hi) > 0 else 0.0,
+    }
 
 
 def build_split_masks(split_mode, drug_ids, cell_idx, test_frac, seed=42):
@@ -174,15 +202,75 @@ class PCCCallback(keras.callbacks.Callback):
         self.cell_mean = cell_mean
         self.y_is_residual = bool(y_is_residual)
 
+    def _uncertainty_stats(self, data_pack):
+        if not bool(getattr(self.model, "predict_uncertainty", False)):
+            return None
+        if len(data_pack) == 4:
+            ctl, drug, cells, y_true = data_pack
+            drug_fp = None
+        else:
+            ctl, drug, cells, drug_fp, y_true = data_pack
+        if self.max_eval is not None and len(ctl) > int(self.max_eval):
+            rng = np.random.default_rng(0)
+            idx = rng.choice(len(ctl), size=int(self.max_eval), replace=False)
+            ctl = ctl[idx]
+            drug = drug[idx]
+            cells = cells[idx]
+            y_true = y_true[idx]
+            if drug_fp is not None:
+                drug_fp = drug_fp[idx]
+        if drug_fp is None:
+            pred = self.model.predict([ctl, drug, cells], batch_size=self.batch_size, verbose=0)
+        else:
+            pred = self.model.predict([ctl, drug, cells, drug_fp], batch_size=self.batch_size, verbose=0)
+        mean_pred, logvar_pred = _split_mean_logvar(pred)
+        if logvar_pred is None:
+            return None
+        mean_pred = np.asarray(mean_pred, dtype=np.float32)
+        clip_min = float(getattr(self.model, "logvar_clip_min", -6.0))
+        clip_max = float(getattr(self.model, "logvar_clip_max", 2.0))
+        logvar_pred = np.clip(np.asarray(logvar_pred, dtype=np.float32), clip_min, clip_max)
+        y_true = np.asarray(y_true, dtype=np.float32)
+        if bool(self.y_is_residual) and self.cell_mean is not None:
+            cm = np.asarray(self.cell_mean, dtype=np.float32)[cells]
+            y_true = y_true + cm
+            mean_pred = mean_pred + cm
+        valid_indices = np.where(np.asarray(self.loss_mask)[0] > 0)[0]
+        mean_valid = mean_pred[:, valid_indices]
+        logvar_valid = logvar_pred[:, valid_indices]
+        sigma_valid = np.exp(0.5 * logvar_valid)
+        interval = _interval_metrics(y_true, mean_pred, logvar_pred, self.loss_mask)
+        return {
+            "mu_mean": float(np.mean(mean_valid)),
+            "mu_std": float(np.std(mean_valid)),
+            "logvar_mean": float(np.mean(logvar_valid)),
+            "logvar_min": float(np.min(logvar_valid)),
+            "logvar_max": float(np.max(logvar_valid)),
+            "sigma_mean": float(np.mean(sigma_valid)),
+            "interval": interval,
+        }
+
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         target_scale = None
+        cell_scale = None
+        context_scale = None
         try:
             inner = getattr(getattr(self.model, "core", None), "gat", None)
-            if inner is not None and hasattr(inner, "target_scale_logit"):
-                target_scale = float(tf.nn.softplus(inner.target_scale_logit).numpy())
+            if inner is not None and hasattr(inner, "get_logged_scales"):
+                scale_dict = inner.get_logged_scales()
+                target_scale = scale_dict.get("target_scale")
+                cell_scale = scale_dict.get("cell_scale")
+                context_scale = scale_dict.get("context_scale")
+            else:
+                if inner is not None and hasattr(inner, "target_scale_logit"):
+                    target_scale = float(tf.nn.softplus(inner.target_scale_logit).numpy())
+                if inner is not None and hasattr(inner, "cell_scale_logit") and getattr(inner, "cell_scale_logit") is not None:
+                    cell_scale = float(tf.nn.softplus(inner.cell_scale_logit).numpy())
         except Exception:
             target_scale = None
+            cell_scale = None
+            context_scale = None
 
         if len(self.train_data) == 4:
             ctl_tr, drug_tr, cell_tr, y_tr = self.train_data
@@ -243,6 +331,17 @@ class PCCCallback(keras.callbacks.Callback):
 
         logs["pcc"] = tr["pcc"]
         logs["val_pcc"] = va["pcc"]
+        logs["mse"] = tr["mse"]
+        logs["val_mse"] = va["mse"]
+
+        tr_unc_stats = None
+        va_unc_stats = None
+        try:
+            tr_unc_stats = self._uncertainty_stats(self.train_data)
+            va_unc_stats = self._uncertainty_stats(self.val_data)
+        except Exception:
+            tr_unc_stats = None
+            va_unc_stats = None
 
         extra = []
         for k in ["loss_full", "loss_cf", "cf_gap", "loss_hinge"]:
@@ -254,10 +353,40 @@ class PCCCallback(keras.callbacks.Callback):
                     pass
         if target_scale is not None:
             extra.append(f"target_scale={target_scale:.4f}")
+        if cell_scale is not None:
+            extra.append(f"cell_scale={cell_scale:.4f}")
+        if context_scale is not None:
+            extra.append(f"context_scale={context_scale:.4f}")
+        if tr_unc_stats is not None:
+            extra.append(f"tr_sigma_mean={tr_unc_stats['sigma_mean']:.4f}")
+            if tr_unc_stats.get("interval") is not None:
+                extra.append(
+                    f"tr_pcc_int=[{tr_unc_stats['interval']['pcc_low']:.4f},{tr_unc_stats['interval']['pcc_high']:.4f}]"
+                )
+                extra.append(
+                    f"tr_mse_int=[{tr_unc_stats['interval']['mse_low']:.4f},{tr_unc_stats['interval']['mse_high']:.4f}]"
+                )
+        if va_unc_stats is not None:
+            extra.append(f"val_mu_mean={va_unc_stats['mu_mean']:.4f}")
+            extra.append(f"val_mu_std={va_unc_stats['mu_std']:.4f}")
+            extra.append(f"val_logvar_mean={va_unc_stats['logvar_mean']:.4f}")
+            extra.append(f"val_logvar_min={va_unc_stats['logvar_min']:.4f}")
+            extra.append(f"val_logvar_max={va_unc_stats['logvar_max']:.4f}")
+            extra.append(f"val_sigma_mean={va_unc_stats['sigma_mean']:.4f}")
+            if va_unc_stats.get("interval") is not None:
+                extra.append(
+                    f"val_pcc_int=[{va_unc_stats['interval']['pcc_low']:.4f},{va_unc_stats['interval']['pcc_high']:.4f}]"
+                )
+                extra.append(
+                    f"val_mse_int=[{va_unc_stats['interval']['mse_low']:.4f},{va_unc_stats['interval']['mse_high']:.4f}]"
+                )
         if len(extra) == 0:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f}")
+            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f}")
         else:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f} " + " ".join(extra))
+            print(
+                f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} "
+                f"val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f} " + " ".join(extra)
+            )
 
 
 class GATWrapper(keras.Model):
@@ -355,7 +484,20 @@ After training, it should be validated with sanity checks (performance should dr
 cold drug / cold cell evaluation to confirm that the learned drug dependence is meaningful.
 """
 class DrugContrastiveTrainer(keras.Model):
-    def __init__(self, core_model, loss_mask, cf_mode="zero", eval_cf_mode=None, cf_lambda=1.0, cf_margin=0.1, fp_dim=0):
+    def __init__(
+        self,
+        core_model,
+        loss_mask,
+        cf_mode="zero",
+        eval_cf_mode=None,
+        cf_lambda=1.0,
+        cf_margin=0.1,
+        fp_dim=0,
+        predict_uncertainty=False,
+        pcc_lambda=5.0,
+        logvar_clip_min=-6.0,
+        logvar_clip_max=2.0,
+    ):
         super().__init__()
         self.core = core_model
         self.loss_mask = tf.constant(loss_mask, dtype=tf.float32)
@@ -364,6 +506,10 @@ class DrugContrastiveTrainer(keras.Model):
         self.cf_lambda = float(cf_lambda)
         self.cf_margin = float(cf_margin)
         self.fp_dim = int(fp_dim)
+        self.predict_uncertainty = bool(predict_uncertainty)
+        self.pcc_lambda = float(pcc_lambda)
+        self.logvar_clip_min = float(logvar_clip_min)
+        self.logvar_clip_max = float(logvar_clip_max)
         self.metric_total = keras.metrics.Mean(name="loss")
         self.metric_full = keras.metrics.Mean(name="loss_full")
         self.metric_cf = keras.metrics.Mean(name="loss_cf")
@@ -377,6 +523,14 @@ class DrugContrastiveTrainer(keras.Model):
     def call(self, inputs, training=False):
         return self.core(inputs, training=training)
 
+    def _split_prediction(self, y_pred):
+        y_pred = tf.cast(y_pred, tf.float32)
+        if self.predict_uncertainty:
+            if len(y_pred.shape) != 3 or y_pred.shape[-1] != 2:
+                raise ValueError("predict_uncertainty=True requires model output shape (B, N, 2)")
+            return y_pred[..., 0], y_pred[..., 1]
+        return y_pred, None
+
     def _pcc_loss(self, y_true, y_pred):
         mx = tf.reduce_mean(y_true, axis=1, keepdims=True)
         my = tf.reduce_mean(y_pred, axis=1, keepdims=True)
@@ -389,18 +543,23 @@ class DrugContrastiveTrainer(keras.Model):
 
     def _masked_combined_loss(self, y_true, y_pred):
         y_true = tf.cast(y_true, tf.float32)
-        y_pred = tf.cast(y_pred, tf.float32)
+        mean_pred, logvar_pred = self._split_prediction(y_pred)
         mask = tf.cast(self.loss_mask, tf.float32)
-        mse = tf.reduce_sum(tf.square(y_true - y_pred) * mask)
         valid_count = tf.reduce_sum(mask)
         batch_n = tf.cast(tf.shape(y_true)[0], tf.float32)
-        mse = mse / tf.maximum(valid_count * batch_n, 1.0)
+        if self.predict_uncertainty:
+            logvar_pred = tf.clip_by_value(logvar_pred, self.logvar_clip_min, self.logvar_clip_max)
+            inv_var = tf.exp(-logvar_pred)
+            nll = 0.5 * (logvar_pred + tf.square(y_true - mean_pred) * inv_var)
+            base_loss = tf.reduce_sum(nll * mask) / tf.maximum(valid_count * batch_n, 1.0)
+        else:
+            mse = tf.reduce_sum(tf.square(y_true - mean_pred) * mask)
+            base_loss = mse / tf.maximum(valid_count * batch_n, 1.0)
         valid_indices = tf.where(self.loss_mask[0] > 0)[:, 0]
-        # y_pred 中按指定索引取出某些列
         yt = tf.gather(y_true, valid_indices, axis=1) 
-        yp = tf.gather(y_pred, valid_indices, axis=1)
+        yp = tf.gather(mean_pred, valid_indices, axis=1)
         pcc = self._pcc_loss(yt, yp)
-        return mse + 5.0 * pcc
+        return base_loss + tf.cast(self.pcc_lambda, tf.float32) * pcc
 
     def _make_counterfactual_inputs(self, x, mode=None):
         mode = self.cf_mode if mode is None else str(mode)
@@ -482,6 +641,7 @@ def main():
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--num_heads", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--cell_dropout_rate", type=float, default=0.3)
     parser.add_argument("--attention_layers", type=int, default=4)
     parser.add_argument("--per_node_head", action="store_true", default=True)
     parser.add_argument("--run_eagerly", action="store_true", default=False)
@@ -503,6 +663,10 @@ def main():
     parser.add_argument("--eval_cf_mode", choices=["", "shuffle", "zero"], default="")
     parser.add_argument("--cf_lambda", type=float, default=1.0)
     parser.add_argument("--cf_margin", type=float, default=0.1)
+    parser.add_argument("--predict_uncertainty", action="store_true", default=True)
+    parser.add_argument("--pcc_lambda", type=float, default=5.0)
+    parser.add_argument("--logvar_clip_min", type=float, default=-6.0)
+    parser.add_argument("--logvar_clip_max", type=float, default=2.0)
     args = parser.parse_args()
 
     np.random.seed(42)
@@ -640,7 +804,7 @@ def main():
         train_trt = train_trt_full
         test_trt = test_trt_full
 
-        model = BaseLineGAT(
+        model_kwargs = dict(
             num_genes=int(adj_matrix.shape[0]),
             num_cells=num_cells,
             fingerprint_dim=fp_dim,
@@ -654,6 +818,20 @@ def main():
             use_sparse_adj=bool(args.sparse_gat),
             use_cell_embedding=not bool(args.no_cell_embedding),
         )
+        effective_predict_uncertainty = False
+        try:
+            sig = inspect.signature(BaseLineGAT.__init__)
+            if "cell_dropout_rate" in sig.parameters:
+                model_kwargs["cell_dropout_rate"] = float(args.cell_dropout_rate)
+            if "predict_uncertainty" in sig.parameters:
+                effective_predict_uncertainty = bool(args.predict_uncertainty)
+                model_kwargs["predict_uncertainty"] = effective_predict_uncertainty
+            elif bool(args.predict_uncertainty):
+                print("Warning: current BaseLineGAT implementation does not support uncertainty output; falling back to deterministic output.")
+        except Exception:
+            if bool(args.predict_uncertainty):
+                print("Warning: failed to inspect BaseLineGAT signature; falling back to deterministic output.")
+        model = BaseLineGAT(**model_kwargs)
 
         if bool(args.sparse_gat):
             edge_index_np = edge_index.astype(np.int64)
@@ -682,6 +860,10 @@ def main():
             cf_lambda=float(args.cf_lambda),
             cf_margin=float(args.cf_margin),
             fp_dim=int(fp_dim),
+            predict_uncertainty=effective_predict_uncertainty,
+            pcc_lambda=float(args.pcc_lambda),
+            logvar_clip_min=float(args.logvar_clip_min),
+            logvar_clip_max=float(args.logvar_clip_max),
         )
         trainer.compile(optimizer=keras.optimizers.Adam(learning_rate=5e-4), run_eagerly=bool(args.run_eagerly))
 
@@ -828,6 +1010,10 @@ def main():
                 "cf_mode": str(args.cf_mode),
                 "cf_lambda": float(args.cf_lambda),
                 "cf_margin": float(args.cf_margin),
+                "predict_uncertainty": bool(effective_predict_uncertainty),
+                "pcc_lambda": float(args.pcc_lambda),
+                "logvar_clip_min": float(args.logvar_clip_min),
+                "logvar_clip_max": float(args.logvar_clip_max),
                 "pairing_mode": str(args.pairing_mode),
                 "train_anchor_n": int(np.sum(train_anchor_mask)),
                 "test_anchor_n": int(np.sum(test_anchor_mask)),
@@ -850,12 +1036,13 @@ def main():
                 y_pred_test = trainer.predict([test_ctl, test_drug, test_cells], batch_size=256, verbose=0)
             y_true_test = np.asarray(test_trt, dtype=np.float32)
             y_pred_test = np.asarray(y_pred_test, dtype=np.float32)
+            y_pred_mean, y_pred_logvar = _split_mean_logvar(y_pred_test)
             if residualize_target and cell_delta_mean is not None:
                 cm = np.asarray(cell_delta_mean, dtype=np.float32)[test_cells]
                 y_true_test = y_true_test + cm
-                y_pred_test = y_pred_test + cm
+                y_pred_mean = y_pred_mean + cm
 
-            sample_pcc, sample_mse = _samplewise_metrics(y_true_test, y_pred_test, data["loss_mask"])
+            sample_pcc, sample_mse = _samplewise_metrics(y_true_test, y_pred_mean, data["loss_mask"])
 
             sanity = {}
             if sanity_drug_zero_metrics is not None:
@@ -885,6 +1072,10 @@ def main():
                 "cf_mode": str(args.cf_mode),
                 "cf_lambda": float(args.cf_lambda),
                 "cf_margin": float(args.cf_margin),
+                "predict_uncertainty": bool(effective_predict_uncertainty),
+                "pcc_lambda": float(args.pcc_lambda),
+                "logvar_clip_min": float(args.logvar_clip_min),
+                "logvar_clip_max": float(args.logvar_clip_max),
                 "train_anchor_n": int(np.sum(train_anchor_mask)),
                 "test_anchor_n": int(np.sum(test_anchor_mask)),
                 "train_metrics": train_metrics,
@@ -894,7 +1085,8 @@ def main():
             _save_npz(
                 out_path,
                 y_true=y_true_test.astype(np.float32),
-                y_pred=y_pred_test.astype(np.float32),
+                y_pred=y_pred_mean.astype(np.float32),
+                y_logvar=(np.zeros((0,), dtype=np.float32) if y_pred_logvar is None else y_pred_logvar.astype(np.float32)),
                 sample_pcc=sample_pcc.astype(np.float32),
                 sample_mse=sample_mse.astype(np.float32),
                 cell_names=np.asarray(test_cell_names_arr, dtype=object),

@@ -16,10 +16,10 @@
 \section{Drug perturbation}
 Drug perturbation means using a drug to change the state of a cell so that the response can be studied. A drug usually starts by binding to one or more target proteins. This event may block a protein, activate it, or change its function in another way. The effect usually does not stop there. The signal can spread through molecular interactions inside the cell and affect many downstream genes.
 
-\noindent In this thesis, the cellular response is described through gene expression. Gene expression shows how active each gene is. After drug treatment, some genes become more active and others become less active. Predicting these changes is useful because they give a broad summary of the molecular response in a form that can be measured at scale.
+\noindent In this work, the cellular response is described through gene expression. Gene expression shows how active each gene is. After drug treatment, some genes become more active and others become less active. Predicting these changes is useful because they give a broad summary of the molecular response in a form that can be measured at scale.
 
 \section{High-throughput experiment}
-\noindent Researchers use high-throughput experiments to study drug perturbations at scale. Figure~\ref{fig:well_plates} shows the basic setup. The idea is simple. Many cell lines are grown in multi-well plates. Many drugs are applied under controlled conditions. Gene expression is measured after treatment. This design makes it possible to compare many perturbations in a standard way.
+\noindent Researchers use high-throughput experiments to study drug perturbations at scale. The idea is simple. Many cell lines are grown in multi-well plates. Many drugs are applied under controlled conditions. Gene expression is measured after treatment. This design makes it possible to compare many perturbations in a standard way. Figure~\ref{fig:well_plates} shows this basic idea in a simple form.
 
 \noindent This thesis uses the LINCS L1000 dataset. LINCS records gene expression responses for many compounds, cell lines, doses, and treatment times. Each well contains cells under one experimental condition. After treatment, the assay measures 978 landmark genes. The expression of additional genes can then be inferred from these measurements.
 
@@ -38,6 +38,15 @@ Drug perturbation means using a drug to change the state of a cell so that the r
     \label{fig:well_plates}
 \end{figure}
 
+\noindent Figure~\ref{fig:high_throughput_plate} gives a more concrete example of how such a plate can be organized in practice. Each row can be assigned to one compound. Several wells in the same row form a dilution series, so the same compound is tested at different doses. DMSO only wells are used as controls. In this way, one plate can contain many related test conditions while still keeping a clear reference for comparison.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.98\linewidth]{figures/high_throughput.png}
+    \caption{Example of a 96 well plate layout used in high-throughput screening. Each row tests one compound across a range of doses through serial dilution. DMSO only wells serve as controls without the active compound.}
+    \label{fig:high_throughput_plate}
+\end{figure}
+
 \section{Prior knowledge of molecular interactions}
 
 A second source of information comes from biological knowledge databases. These resources summarize known links among genes and proteins, such as regulation and signaling. This information is useful because drug effects do not come from one target alone. A drug may start from a small set of targets, but the response is shaped by how signals move through the surrounding molecular network.
@@ -47,11 +56,9 @@ A second source of information comes from biological knowledge databases. These 
 \noindent This combination is central to the thesis. Perturbation data show what changes after treatment. The interaction network gives information about how those changes may spread through the cell. Drug target information marks where the perturbation begins. When these sources are combined, the model can make predictions that are more informed than predictions based on expression data alone.
 
 \section{Aim}
-This thesis studies how to predict gene expression changes after drug perturbation. The input includes the baseline state of the cell, known drug targets, and a molecular interaction network. The motivation is both practical and methodological. If such responses can be predicted more accurately, researchers can screen compounds more efficiently, prioritize follow up experiments, and better understand possible drug mechanisms.
+This thesis studies how to predict gene expression changes after drug perturbation from the baseline state of the cell, known drug targets, and a molecular interaction network. The motivation is both practical and methodological. More accurate response prediction can support compound screening, help prioritize follow up experiments, and improve the understanding of possible drug mechanisms. This thesis asks whether a graph based model can use simple and biologically meaningful prior information to improve perturbation prediction.
 
-\noindent The main idea is to combine two types of prior information. One is a molecular interaction network from a database such as OmniPath. The other is drug target information that marks where the perturbation begins. This thesis asks whether a graph based model can combine these sources to improve perturbation prediction.
-
-The aims of this thesis are:
+\noindent The aims of this thesis are:
 \begin{enumerate}
     \item To build a graph neural network (GNN) based on the OmniPath molecular interaction network. This model will predict drug-induced gene expression changes by combining baseline cell data and drug target information.
     \item To test how well the model works on unseen drugs and unseen cell lines (where test drugs or cells were never seen during training).
@@ -89,7 +96,7 @@ This thesis uses public data from LINCS L1000 and OmniPath. The data do not cont
 
 \noindent Responsible reporting is therefore important. Model performance should be reported together with failure cases and limits of interpretation, especially when predictions are applied to unseen drugs or unseen cell lines.
 
-\noindent Computational cost is another concern. Training deep learning models requires compute resources, and repeated hyperparameter search uses more energy. In this thesis, the models are trained on standard hardware with a limited set of configurations to keep resource use at a reasonable level.
+\noindent Computational cost is another concern. Training deep learning models requires compute resources, and repeated hyperparameter search uses more energy. The models are trained on standard hardware with a limited set of configurations to keep resource use at a reasonable level.
 
 \section{Limitations}
 This study has limits from both the experimental data and the prior knowledge source. LINCS profiles are measured in a limited set of cell lines, and many of them are cancer derived. The results may therefore not transfer directly to primary cells or tissues. Experimental factors such as dose, treatment time, and plate context can also affect the measurements. Matched controls reduce some shared technical variation, but residual bias may remain.
