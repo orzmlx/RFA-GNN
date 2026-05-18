@@ -1,0 +1,24 @@
+% !TeX root = thesis.tex
+\chapter{Conclusion}
+
+\noindent This thesis examined whether graph neural networks with known biological information can improve prediction of gene expression changes after drug treatment. The answers to the main research questions are summarized below.
+
+\section{Research Questions}
+
+\noindent \textbf{Which graph neural network architecture was most appropriate for this task?}
+
+\noindent Among the evaluated graph based models, the proposed CAGNN appeared to be the most suitable design for this task. It combines a graph attention network with the OmniPath interaction graph, drug target input, matched control expression, and control derived cell context. In the main comparison, it gave higher PCC and top gene precision than the other models in all three splits. It also gave lower MSE than GSNN in all three splits and lower MSE than DeepCOP in warm and cold drug target. This does not prove that a GAT based model is always the best choice for every drug response prediction problem. However, within the scope of this thesis, it performed better than the other tested graph based model on the reported metrics.
+
+\noindent \textbf{How accurately can the model generalize to unseen drugs and unseen cell lines?}
+
+\noindent The model worked reasonably well on unseen drugs, but cold cell remained the hardest setting on PCC and top gene precision. In the cold drug target split, CAGNN still gave the highest PCC and top gene precision, together with the lowest MSE. This suggests that the model can transfer useful information to drugs not seen during training under the present evaluation setting. In the cold cell split, the performance of all methods dropped. DeepCOP gave the lowest MSE there, while CAGNN remained stronger on PCC and top gene precision. A new cell background is therefore harder than a new drug. The uncertainty results support the same conclusion, since cold cell also showed the clearest link between predicted uncertainty and prediction error.
+
+\noindent \textbf{How much does a biologically informed GNN improve over models that do not use network structure?}
+
+\noindent Compared with DeepCOP, the non graph baseline, CAGNN gave higher PCC in all three splits and lower MSE in warm and cold drug target, while DeepCOP was slightly better on cold cell MSE. Compared with GSNN, the graph based baseline, CAGNN gave higher PCC, higher top gene precision, and lower MSE in all three splits. The most direct supporting evidence comes from the consistent gains on PCC and top gene precision across all three splits. The gain was therefore not limited to one evaluation view. The model not only reduced numerical error in most settings, but also preserved the overall response pattern and recovered the strongest changed genes more accurately.
+
+\section{Conclusion}
+
+\noindent This thesis provides evidence that known biological information can improve prediction of gene expression changes after drug treatment when it is built into the model in a clear way. In this work, that information came from a molecular interaction graph, known drug targets, and the measured control profile of the sample. When these sources were combined in CAGNN, the model gave higher PCC and top gene precision across all three splits, and lower MSE in warm and cold drug target.
+
+\noindent Cold cell remained the hardest setting on PCC and top gene precision. There is still room for improvement, especially for unseen cell lines, uncertainty calibration, and biological validation.

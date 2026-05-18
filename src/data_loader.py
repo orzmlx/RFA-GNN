@@ -13,6 +13,7 @@ import json
 import networkx as nx
 import matplotlib.pyplot as plt
 import h5py
+from train_common import build_disjoint_target_split_masks
 
 def load_uniprot_gene_mapping(mapping_path):
     """
@@ -208,7 +209,8 @@ def build_combined_gnn(
     directed=True,
     omnipath_consensus_only=False,
     omnipath_is_directed_only=False,
-    symbol_to_entrez=None
+    symbol_to_entrez=None,
+    return_edge_weight=False,
 
 ):
     """
@@ -413,11 +415,45 @@ def build_combined_gnn(
         
     gene2idx = {g: i for i, g in enumerate(node_list)}
     N = len(node_list)
+
+    if bool(return_edge_weight):
+        sparse_edge_map = {}
+
+        for u, v, w in edges_directed:
+            if u in gene2idx and v in gene2idx:
+                i, j = gene2idx[u], gene2idx[v]
+                key = (i, j)
+                prev = sparse_edge_map.get(key)
+                if prev is None or abs(w) > abs(prev):
+                    sparse_edge_map[key] = float(w)
+
+        for u, v, w in edges_undirected:
+            if u in gene2idx and v in gene2idx:
+                i, j = gene2idx[u], gene2idx[v]
+                for key in ((i, j), (j, i)):
+                    prev = sparse_edge_map.get(key)
+                    if prev is None:
+                        sparse_edge_map[key] = float(w)
+                    else:
+                        sparse_edge_map[key] = float(max(prev, w))
+
+        edge_items = sorted(sparse_edge_map.items(), key=lambda kv: (kv[0][0], kv[0][1]))
+        if edge_items:
+            src = np.asarray([ij[0] for ij, _ in edge_items], dtype=np.int32)
+            dst = np.asarray([ij[1] for ij, _ in edge_items], dtype=np.int32)
+            edge_index = np.stack([src, dst], axis=0)
+            edge_weight = np.asarray([w for _, w in edge_items], dtype=np.float32)
+        else:
+            edge_index = np.zeros((2, 0), dtype=np.int32)
+            edge_weight = np.zeros((0,), dtype=np.float32)
+
+        print(f"Combined Graph 构建完成: {N} 节点, {edge_index.shape[1]} 稀疏边 (不含 self-loop)")
+        return None, node_list, gene2idx, edge_index, edge_weight
+
     adj_matrix = np.zeros((N, N), dtype=np.float32)
-    
     edge_index = [[], []]
     count = 0
-    
+
     for u, v, w in edges_directed:
         if u in gene2idx and v in gene2idx:
             i, j = gene2idx[u], gene2idx[v]
@@ -437,10 +473,10 @@ def build_combined_gnn(
             edge_index[0].append(j)
             edge_index[1].append(i)
             count += 1
-            
+
     # 5. Add Self-Loops (Weight=1.0)
     np.fill_diagonal(adj_matrix, 1.0)
-    
+
     print(f"Combined Graph 构建完成: {N} 节点, {count} 边 (含权重)")
     return adj_matrix, node_list, gene2idx, np.array(edge_index)
 
@@ -653,7 +689,7 @@ def load_go_fingerprints(file_path, gene_list):
     return aligned_matrix
 
 
-def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42):
+def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42, drug_target_matrix=None):
     split_mode = str(split_mode).strip()
     if test_frac <= 0.0 or test_frac >= 1.0:
         raise ValueError("--test_frac 需要在 (0, 1) 之间")
@@ -691,6 +727,22 @@ def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42)
         test_mask = np.isin(drug_ids, held)
         train_mask = ~test_mask
         print(f"Split=cold_drug | Held-out drugs: {len(held)}/{len(unique_drugs)}")
+        return train_mask, test_mask
+    if split_mode == "cold_target_pattern":
+        if drug_target_matrix is None:
+            raise RuntimeError("cold_target_pattern 需要提供 drug_target_matrix")
+        train_mask, test_mask, stats = build_disjoint_target_split_masks(
+            drug_target_matrix,
+            test_frac,
+            seed=seed,
+        )
+        print(
+            "Split=cold_target_pattern | "
+            f"Held-out overlap components: {stats['held_out_components']}/{stats['total_components']} | "
+            f"train_n={stats['train_samples']} test_n={stats['test_samples']} | "
+            f"pattern_overlap={stats['pattern_overlap_count']} "
+            f"target_overlap={stats['target_overlap_count']}"
+        )
         return train_mask, test_mask
     raise ValueError(f"未知 split_mode: {split_mode}")
 
@@ -971,7 +1023,15 @@ def build_scheme_a_split_data(
 ):
     anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
     anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
-    train_mask, test_mask = build_pair_split_masks(split_mode, anchor_drug_ids, anchor_cell_names, test_frac, seed=seed)
+    anchor_X_drug = np.asarray(data["anchor_X_drug"], dtype=np.float32)
+    train_mask, test_mask = build_pair_split_masks(
+        split_mode,
+        anchor_drug_ids,
+        anchor_cell_names,
+        test_frac,
+        seed=seed,
+        drug_target_matrix=anchor_X_drug,
+    )
     train_anchor = subset_anchor_data(data, np.where(train_mask)[0])
     test_anchor = subset_anchor_data(data, np.where(test_mask)[0])
     train_allowed_ctl, test_allowed_ctl, train_candidates, test_candidates, ctl_stats = isolate_ctl_pools(

@@ -73,7 +73,7 @@ def extract_budget_args(argv):
     return args, budgets, remaining
 
 
-def make_budgeted_split_fn(budget, budget_seed, base_split_fn):
+def make_budgeted_split_fn(budget, budget_seed):
     def _budgeted_split(
         data,
         split_mode,
@@ -94,7 +94,6 @@ def make_budgeted_split_fn(budget, budget_seed, base_split_fn):
             train_ctl_pair_k=train_ctl_pair_k,
             test_pairing_mode=test_pairing_mode,
             min_keep_positive_budget=True,
-            base_split_fn=base_split_fn,
         )
         print("[budget]", summarize_budget_split(meta))
         return train_data, test_data, train_anchor_mask, test_anchor_mask
@@ -104,36 +103,13 @@ def make_budgeted_split_fn(budget, budget_seed, base_split_fn):
 
 @contextmanager
 def patched_split(module_name, budget, budget_seed):
-    # Different training scripts access build_scheme_a_split_data differently:
-    # - some import it into the module namespace: `from data_loader import build_scheme_a_split_data`
-    # - some call it via the data_loader module: `data_loader.build_scheme_a_split_data`
-    # Patch both to avoid touching the original training scripts.
     module = importlib.import_module(module_name)
-    data_loader_mod = importlib.import_module("data_loader")
-
-    sentinel = object()
-    orig_module_fn = getattr(module, "build_scheme_a_split_data", sentinel)
-    orig_loader_fn = getattr(data_loader_mod, "build_scheme_a_split_data")
-
-    patched_fn = make_budgeted_split_fn(
-        budget=budget,
-        budget_seed=budget_seed,
-        base_split_fn=orig_loader_fn,
-    )
-    setattr(data_loader_mod, "build_scheme_a_split_data", patched_fn)
-    setattr(module, "build_scheme_a_split_data", patched_fn)
+    original = getattr(module, "build_scheme_a_split_data")
+    setattr(module, "build_scheme_a_split_data", make_budgeted_split_fn(budget=budget, budget_seed=budget_seed))
     try:
         yield module
     finally:
-        setattr(data_loader_mod, "build_scheme_a_split_data", orig_loader_fn)
-        if orig_module_fn is sentinel:
-            # The target module did not originally define this name.
-            try:
-                delattr(module, "build_scheme_a_split_data")
-            except Exception:
-                pass
-        else:
-            setattr(module, "build_scheme_a_split_data", orig_module_fn)
+        setattr(module, "build_scheme_a_split_data", original)
 
 
 def run_budgeted_main(module_name, argv=None):

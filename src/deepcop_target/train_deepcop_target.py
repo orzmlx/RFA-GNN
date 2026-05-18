@@ -6,48 +6,18 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from sklearn.metrics import mean_squared_error
-from scipy.stats import pearsonr
-
-
-def samplewise_pcc(y_true, y_pred, loss_mask):
-    valid = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    yt = y_true[:, valid]
-    yp = y_pred[:, valid]
-    pcc_list = []
-    for i in range(len(yt)):
-        a = yt[i]
-        b = yp[i]
-        if np.std(a) > 1e-6 and np.std(b) > 1e-6:
-            p, _ = pearsonr(a, b)
-            pcc_list.append(p)
-    return float(np.mean(pcc_list)) if pcc_list else 0.0
-
-
-def split_prediction(pred):
-    pred = np.asarray(pred)
-    if pred.ndim == 3 and pred.shape[-1] == 2:
-        return pred[..., 0], pred[..., 1]
-    return pred, None
-
-
-def gaussian_nll_loss(logvar_clip_min=-6.0, logvar_clip_max=2.0):
-    logvar_clip_min = float(logvar_clip_min)
-    logvar_clip_max = float(logvar_clip_max)
-
-    def loss_fn(y_true, y_pred):
-        y_true = tf.cast(y_true, tf.float32)
-        y_pred = tf.cast(y_pred, tf.float32)
-        if len(y_pred.shape) == 3 and y_pred.shape[-1] == 2:
-            mean_pred = y_pred[..., 0]
-            logvar_pred = tf.clip_by_value(y_pred[..., 1], logvar_clip_min, logvar_clip_max)
-            inv_var = tf.exp(-logvar_pred)
-            return tf.reduce_mean(0.5 * (logvar_pred + tf.square(y_true - mean_pred) * inv_var))
-        return tf.reduce_mean(tf.square(y_true - y_pred))
-
-    return loss_fn
-
-
+from data_loader import load_rfa_data, subset_anchor_data, build_scheme_a_split_data
+from deepcop import DeepCOP
+SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+from train_common import (
+    samplewise_masked_metrics,
+    samplewise_pcc,
+    save_predictions_npz,
+    split_mean_logvar,
+)
+from train_tf_common import GenericPCCCallback
 def eval_pcc_mse(model, x_ctl, x_drugfeat, y_true, loss_mask, batch_size=256, max_eval=None):
     if len(x_ctl) == 0:
         return {"mse": 0.0, "pcc": 0.0}
@@ -58,33 +28,11 @@ def eval_pcc_mse(model, x_ctl, x_drugfeat, y_true, loss_mask, batch_size=256, ma
         x_drugfeat = x_drugfeat[idx]
         y_true = y_true[idx]
     pred = model.predict([x_ctl, x_drugfeat], batch_size=int(batch_size), verbose=0)
-    mean_pred, _ = split_prediction(pred)
-    pcc = samplewise_pcc(y_true, mean_pred, loss_mask)
+    pred_mean, _ = split_mean_logvar(pred)
     valid = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    mse = float(mean_squared_error(y_true[:, valid], mean_pred[:, valid]))
+    pcc = float(np.mean(samplewise_pcc(y_true, pred_mean, valid_indices=valid))) if len(y_true) else 0.0
+    mse = float(np.mean((y_true[:, valid] - pred_mean[:, valid]) ** 2))
     return {"mse": mse, "pcc": pcc}
-
-
-def interval_metrics(y_true, mean_pred, logvar_pred, loss_mask):
-    if logvar_pred is None:
-        return None
-    valid = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    yt = np.asarray(y_true, dtype=np.float32)[:, valid]
-    mu = np.asarray(mean_pred, dtype=np.float32)[:, valid]
-    sigma = np.exp(0.5 * np.asarray(logvar_pred, dtype=np.float32)[:, valid])
-    pred_lo = mu - sigma
-    pred_hi = mu + sigma
-    pcc_lo = samplewise_pcc(yt, pred_lo, np.ones((1, yt.shape[1]), dtype=np.float32))
-    pcc_hi = samplewise_pcc(yt, pred_hi, np.ones((1, yt.shape[1]), dtype=np.float32))
-    mse_lo = float(mean_squared_error(yt, pred_lo))
-    mse_hi = float(mean_squared_error(yt, pred_hi))
-    return {
-        "pcc_low": float(pcc_lo),
-        "pcc_high": float(pcc_hi),
-        "mse_low": float(mse_lo),
-        "mse_high": float(mse_hi),
-    }
-
 
 def predict_full(model, x_ctl, x_drugfeat, y_true, loss_mask, batch_size=256):
     if len(x_ctl) == 0:
@@ -94,189 +42,37 @@ def predict_full(model, x_ctl, x_drugfeat, y_true, loss_mask, batch_size=256):
             "sample_pcc": np.zeros((0,), dtype=np.float32),
             "y_true": np.zeros((0, 0), dtype=np.float32),
             "y_pred": np.zeros((0, 0), dtype=np.float32),
+            "y_logvar": np.zeros((0, 0), dtype=np.float32),
         }
     pred = model.predict([x_ctl, x_drugfeat], batch_size=int(batch_size), verbose=0)
-    mean_pred, logvar_pred = split_prediction(pred)
+    pred_mean, pred_logvar = split_mean_logvar(pred)
+    sample_pcc, sample_mse = samplewise_masked_metrics(y_true, pred_mean, loss_mask)
     valid = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    sample_pcc_list = []
     yt = y_true[:, valid]
-    yp = mean_pred[:, valid]
-    for i in range(len(yt)):
-        a = yt[i]
-        b = yp[i]
-        if np.std(a) > 1e-6 and np.std(b) > 1e-6:
-            p, _ = pearsonr(a, b)
-            sample_pcc_list.append(float(p))
-        else:
-            sample_pcc_list.append(0.0)
-    sample_pcc = np.asarray(sample_pcc_list, dtype=np.float32)
-    mse = float(mean_squared_error(yt, yp))
+    yp = pred_mean[:, valid]
+    mse = float(np.mean((yt - yp) ** 2))
     return {
         "mse": mse,
         "pcc": float(np.mean(sample_pcc)) if len(sample_pcc) > 0 else 0.0,
         "sample_pcc": sample_pcc,
+        "sample_mse": sample_mse,
         "y_true": np.asarray(y_true, dtype=np.float32),
-        "y_pred": np.asarray(mean_pred, dtype=np.float32),
-        "y_logvar": None if logvar_pred is None else np.asarray(logvar_pred, dtype=np.float32),
-        "y_sigma": None if logvar_pred is None else np.asarray(np.exp(0.5 * logvar_pred), dtype=np.float32),
+        "y_pred": np.asarray(pred_mean, dtype=np.float32),
+        "y_logvar": (np.zeros_like(pred_mean, dtype=np.float32) if pred_logvar is None else np.asarray(pred_logvar, dtype=np.float32)),
     }
 
 
-def build_split_masks(split_mode, drug_ids, cell_idx, test_frac, seed=42):
-    split_mode = str(split_mode).strip()
-    if test_frac <= 0.0 or test_frac >= 1.0:
-        raise ValueError("--test_frac 需要在 (0, 1) 之间")
-    rng = np.random.default_rng(int(seed))
-    n = len(drug_ids)
-    if split_mode == "warm":
-        if n < 2:
-            raise RuntimeError("warm 需要至少 2 个样本")
-        n_test = max(1, int(n * test_frac))
-        n_test = min(n_test, n - 1)
-        held = rng.choice(np.arange(n), size=n_test, replace=False)
-        test_mask = np.zeros((n,), dtype=bool)
-        test_mask[held] = True
-        train_mask = ~test_mask
-        print(f"Split=warm | Held-out samples: {int(np.sum(test_mask))}/{n}")
-        return train_mask, test_mask
-    if split_mode == "cold_cell":
-        unique_cells = np.unique(cell_idx)
-        if len(unique_cells) < 2:
-            raise RuntimeError("cold_cell 需要至少 2 个细胞系")
-        n_test = max(1, int(len(unique_cells) * test_frac))
-        n_test = min(n_test, len(unique_cells) - 1)
-        held = rng.choice(unique_cells, size=n_test, replace=False)
-        test_mask = np.isin(cell_idx, held)
-        train_mask = ~test_mask
-        print(f"Split=cold_cell | Held-out cells: {len(held)}/{len(unique_cells)}")
-        return train_mask, test_mask
-    if split_mode == "cold_drug":
-        unique_drugs = np.unique(drug_ids)
-        if len(unique_drugs) < 2:
-            raise RuntimeError("cold_drug 需要至少 2 个药物")
-        n_test = max(1, int(len(unique_drugs) * test_frac))
-        n_test = min(n_test, len(unique_drugs) - 1)
-        held = rng.choice(unique_drugs, size=n_test, replace=False)
-        test_mask = np.isin(drug_ids, held)
-        train_mask = ~test_mask
-        print(f"Split=cold_drug | Held-out drugs: {len(held)}/{len(unique_drugs)}")
-        print(f"Train/Test drug overlap: {len(set(drug_ids[train_mask]) & set(drug_ids[test_mask]))}")
-        return train_mask, test_mask
-    raise ValueError(f"未知 split_mode: {split_mode}")
-
-
-def parse_split_modes(raw, fallback):
-    valid = {"warm", "cold_drug", "cold_cell"}
-    s = str(raw).strip()
-    if s == "":
-        return [str(fallback)]
-    modes = [t.strip() for t in s.split(",") if t.strip() != ""]
-    bad = [m for m in modes if m not in valid]
-    if bad:
-        raise ValueError(f"--split_modes 包含不支持的值: {bad}")
-    seen = []
-    for m in modes:
-        if m not in seen:
-            seen.append(m)
-    return seen
-
-
-def append_split_suffix(path, split_mode):
-    s = str(path).strip()
-    if s == "":
-        return ""
-    suffix = f".{str(split_mode).strip()}"
-    stem, ext = os.path.splitext(s)
-    return f"{stem}{suffix}{ext}"
-
-
-def save_predictions_npz(npz_path, split_mode, y_true, y_pred, sample_pcc=None, drug_ids=None, cell_names=None, trt_distil_ids=None, y_logvar=None, y_sigma=None):
-    out_dir = os.path.dirname(npz_path)
-    if out_dir != "":
-        os.makedirs(out_dir, exist_ok=True)
-    payload = {
-        "split_mode": np.asarray(str(split_mode)),
-        "y_true": np.asarray(y_true, dtype=np.float32),
-        "y_pred": np.asarray(y_pred, dtype=np.float32),
-    }
-    if sample_pcc is not None:
-        payload["sample_pcc"] = np.asarray(sample_pcc, dtype=np.float32)
-    if drug_ids is not None:
-        payload["drug_ids"] = np.asarray(drug_ids, dtype=str)
-    if cell_names is not None:
-        payload["cell_names"] = np.asarray(cell_names, dtype=str)
-    if trt_distil_ids is not None:
-        payload["trt_distil_ids"] = np.asarray(trt_distil_ids, dtype=str)
-    if y_logvar is not None:
-        payload["y_logvar"] = np.asarray(y_logvar, dtype=np.float32)
-    if y_sigma is not None:
-        payload["y_sigma"] = np.asarray(y_sigma, dtype=np.float32)
-    np.savez_compressed(npz_path, **payload)
-    print(f"Saved predictions to: {npz_path}")
-
-
-class PCCCallback(keras.callbacks.Callback):
-    def __init__(self, loss_mask, train_data, val_data, batch_size=256, max_eval=20000, logvar_clip_min=-6.0, logvar_clip_max=2.0):
-        super().__init__()
-        self.loss_mask = loss_mask
-        self.train_data = train_data
-        self.val_data = val_data
-        self.batch_size = int(batch_size)
-        self.max_eval = int(max_eval) if max_eval is not None else None
-        self.logvar_clip_min = float(logvar_clip_min)
-        self.logvar_clip_max = float(logvar_clip_max)
-
-    def _uncertainty_stats(self, data_pack):
-        ctl, drug, y_true = data_pack
-        if self.max_eval is not None and len(ctl) > int(self.max_eval):
-            rng = np.random.default_rng(0)
-            idx = rng.choice(len(ctl), size=int(self.max_eval), replace=False)
-            ctl = ctl[idx]
-            drug = drug[idx]
-            y_true = y_true[idx]
-        pred = self.model.predict([ctl, drug], batch_size=self.batch_size, verbose=0)
-        mean_pred, logvar_pred = split_prediction(pred)
-        if logvar_pred is None:
-            return None
-        logvar_pred = np.clip(np.asarray(logvar_pred, dtype=np.float32), self.logvar_clip_min, self.logvar_clip_max)
-        interval = interval_metrics(y_true, mean_pred, logvar_pred, self.loss_mask)
-        valid = np.where(np.asarray(self.loss_mask)[0] > 0)[0]
-        sigma = np.exp(0.5 * logvar_pred[:, valid])
-        return {
-            "sigma_mean": float(np.mean(sigma)),
-            "interval": interval,
-        }
-
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        ctl_tr, drug_tr, y_tr = self.train_data
-        ctl_va, drug_va, y_va = self.val_data
-        tr = eval_pcc_mse(self.model, ctl_tr, drug_tr, y_tr, self.loss_mask, batch_size=self.batch_size, max_eval=self.max_eval)
-        va = eval_pcc_mse(self.model, ctl_va, drug_va, y_va, self.loss_mask, batch_size=self.batch_size, max_eval=self.max_eval)
-        logs["pcc"] = tr["pcc"]
-        logs["val_pcc"] = va["pcc"]
-        logs["mse"] = tr["mse"]
-        logs["val_mse"] = va["mse"]
-        tr_unc = self._uncertainty_stats(self.train_data)
-        va_unc = self._uncertainty_stats(self.val_data)
-        extra = []
-        if tr_unc is not None:
-            extra.append(f"tr_sigma_mean={tr_unc['sigma_mean']:.4f}")
-            if tr_unc.get("interval") is not None:
-                extra.append(f"tr_pcc_int=[{tr_unc['interval']['pcc_low']:.4f},{tr_unc['interval']['pcc_high']:.4f}]")
-                extra.append(f"tr_mse_int=[{tr_unc['interval']['mse_low']:.4f},{tr_unc['interval']['mse_high']:.4f}]")
-        if va_unc is not None:
-            extra.append(f"val_sigma_mean={va_unc['sigma_mean']:.4f}")
-            if va_unc.get("interval") is not None:
-                extra.append(f"val_pcc_int=[{va_unc['interval']['pcc_low']:.4f},{va_unc['interval']['pcc_high']:.4f}]")
-                extra.append(f"val_mse_int=[{va_unc['interval']['mse_low']:.4f},{va_unc['interval']['mse_high']:.4f}]")
-        if len(extra) == 0:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f}")
-        else:
-            print(
-                f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} "
-                f"val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f} " + " ".join(extra)
-            )
+def _eval_deepcop_pack(model, data_pack, batch_size, max_eval, loss_mask):
+    x_ctl, x_drugfeat, y_true = data_pack
+    return eval_pcc_mse(
+        model,
+        x_ctl,
+        x_drugfeat,
+        y_true,
+        loss_mask,
+        batch_size=batch_size,
+        max_eval=max_eval,
+    )
 
 
 def build_drug_features(data, drug_feature, include_cell_onehot, cell_names, drop_fp_has_target, fit_cell_names=None):
@@ -326,26 +122,21 @@ def main():
     p.add_argument("--dropout", type=float, default=0.2)
     p.add_argument("--ctl_pair_k", type=int, default=3)
     p.add_argument("--pairing_mode", choices=["multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"], default="multi_trt_multi_ctl")
-    p.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell"], default="cold_drug")
-    p.add_argument("--split_modes", default="")
-    p.add_argument("--test_frac", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--drug_feature", choices=["target", "fingerprint", "target+fingerprint"], default="target")
     p.add_argument("--include_cell_onehot", action=argparse.BooleanOptionalAction, default=False)
     p.add_argument("--drop_fp_has_target", action="store_true", default=False)
-    p.add_argument("--no_residualize_target_by_cell", action="store_true", default=False)
     p.add_argument("--eval_drug_zero", action="store_true", default=False)
     p.add_argument("--eval_drug_shuffle", action="store_true", default=False)
     p.add_argument("--eval_sanity_max_eval", type=int, default=20000)
     p.add_argument("--eval_sanity_seed", type=int, default=0)
     p.add_argument("--save_json", default="")
     p.add_argument("--save_pred_prefix", default="")
-    p.add_argument("--use_go_matrix", action="store_true", default=False)
-    p.add_argument("--go_fingerprint_path", default="")
     p.add_argument("--original_architecture", action="store_true", default=False)
-    p.add_argument("--predict_uncertainty", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--predict_uncertainty", action="store_true", default=False)
     p.add_argument("--logvar_clip_min", type=float, default=-6.0)
     p.add_argument("--logvar_clip_max", type=float, default=2.0)
+    p.add_argument("--pcc_lambda", type=float, default=5.0)
     args = p.parse_args()
 
     np.random.seed(int(args.seed))
@@ -357,8 +148,7 @@ def main():
     if os.path.join(root, "src") not in sys.path:
         sys.path.insert(0, os.path.join(root, "src"))
 
-    from data_loader import load_rfa_data, load_go_fingerprints, subset_anchor_data, build_scheme_a_split_data
-    from deepcop import DeepCOP
+
 
     ctl_path = os.path.join(root, "data/cmap/level3_beta_ctl_n188708x12328.h5")
     trt_path = os.path.join(root, "data/cmap/level3_beta_trt_cp_n1805898x12328.h5")
@@ -367,17 +157,11 @@ def main():
     landmark_path = os.path.join(root, "data/landmark_genes.json")
     full_gene_path = os.path.join(root, "data/GSE92742_Broad_LINCS_gene_info.txt")
     fingerprint_path = os.path.join(root, "data/new_morgan_fingerprints.csv")
-    default_go_path = os.path.join(root, "DeepCOP", "Data", "go_fingerprints.csv")
-
     cell_lines = args.cell_line
     if cell_lines is not None and isinstance(cell_lines, str):
         s = str(cell_lines).strip()
         if s == "" or s.upper() in {"ALL", "NONE", "NULL"}:
             cell_lines = None
-
-    go_fingerprint_path = str(args.go_fingerprint_path).strip()
-    if go_fingerprint_path == "" and bool(args.use_go_matrix):
-        go_fingerprint_path = default_go_path
 
     data = load_rfa_data(
         ctl_path,
@@ -399,12 +183,38 @@ def main():
     anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
     anchor_trt_distil_ids = np.asarray(data.get("anchor_trt_distil_ids", [""] * len(anchor_drug_ids)), dtype=str)
     loss_mask = np.asarray(data["loss_mask"], dtype=np.float32)
-    go_matrix = None
-    if bool(args.use_go_matrix):
-        go_matrix = load_go_fingerprints(go_fingerprint_path, data["target_genes"])
-        if go_matrix is None:
-            raise RuntimeError(f"加载 GO 特征失败: {go_fingerprint_path}")
-        print(f"Using GO matrix: {go_matrix.shape}")
+
+    def pcc_loss_tf(y_true, y_pred):
+        mx = tf.reduce_mean(y_true, axis=1, keepdims=True)
+        my = tf.reduce_mean(y_pred, axis=1, keepdims=True)
+        xm = y_true - mx
+        ym = y_pred - my
+        r_num = tf.reduce_sum(xm * ym, axis=1)
+        r_den = tf.sqrt(tf.reduce_sum(tf.square(xm), axis=1) * tf.reduce_sum(tf.square(ym), axis=1) + 1e-8)
+        r = r_num / r_den
+        return 1.0 - tf.reduce_mean(r)
+
+    def combined_loss(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        mask = tf.cast(loss_mask, tf.float32)
+        valid_count = tf.reduce_sum(mask)
+        batch_n = tf.cast(tf.shape(y_true)[0], tf.float32)
+        if bool(args.predict_uncertainty):
+            mean_pred = y_pred[..., 0]
+            logvar_pred = y_pred[..., 1]
+            logvar_pred = tf.clip_by_value(logvar_pred, float(args.logvar_clip_min), float(args.logvar_clip_max))
+            inv_var = tf.exp(-logvar_pred)
+            nll = 0.5 * (logvar_pred + tf.square(y_true - mean_pred) * inv_var)
+            base_loss = tf.reduce_sum(nll * mask) / tf.maximum(valid_count * batch_n, 1.0)
+        else:
+            mean_pred = y_pred
+            mse = tf.reduce_sum(tf.square(y_true - mean_pred) * mask)
+            base_loss = mse / tf.maximum(valid_count * batch_n, 1.0)
+        valid_indices = tf.where(loss_mask[0] > 0)[:, 0]
+        yt = tf.gather(y_true, valid_indices, axis=1)
+        yp = tf.gather(mean_pred, valid_indices, axis=1)
+        pcc = pcc_loss_tf(yt, yp)
+        return base_loss + tf.cast(float(args.pcc_lambda), tf.float32) * pcc
 
     if int(args.max_samples) > 0 and len(anchor_drug_ids) > int(args.max_samples):
         rng = np.random.default_rng(int(args.seed))
@@ -418,7 +228,7 @@ def main():
     cell_idx = le.fit_transform(anchor_cell_names)
     num_cells = int(len(le.classes_))
     results = []
-    split_modes = parse_split_modes(args.split_modes, args.split_mode)
+    split_modes = ["cold_drug"]
     for split_mode in split_modes:
         tf.keras.backend.clear_session()
         tf.random.set_seed(int(args.seed))
@@ -426,7 +236,7 @@ def main():
         train_data, test_data, train_mask, test_mask = build_scheme_a_split_data(
             data=data,
             split_mode=split_mode,
-            test_frac=float(args.test_frac),
+            test_frac=0.2,
             seed=int(args.seed),
             train_pairing_mode=str(args.pairing_mode),
             train_ctl_pair_k=int(args.ctl_pair_k),
@@ -462,47 +272,38 @@ def main():
             fit_cell_names=fit_cell_names,
         )
 
-        residualize_target = not bool(args.no_residualize_target_by_cell)
-        if residualize_target:
-            sums = np.zeros((num_cells, train_y_full.shape[1]), dtype=np.float32)
-            cnts = np.zeros((num_cells,), dtype=np.int64)
-            train_cells = le.transform(train_cell_names)
-            test_cells = le.transform(test_cell_names)
-            np.add.at(sums, train_cells, train_y_full)
-            np.add.at(cnts, train_cells, 1)
-            mean = sums / np.maximum(cnts[:, None], 1)
-            train_y = train_y_full - mean[train_cells]
-            test_y = test_y_full - mean[test_cells]
-        else:
-            train_y = train_y_full
-            test_y = test_y_full
+        sums = np.zeros((num_cells, train_y_full.shape[1]), dtype=np.float32)
+        cnts = np.zeros((num_cells,), dtype=np.int64)
+        train_cells = le.transform(train_cell_names)
+        test_cells = le.transform(test_cell_names)
+        np.add.at(sums, train_cells, train_y_full)
+        np.add.at(cnts, train_cells, 1)
+        mean = sums / np.maximum(cnts[:, None], 1)
+        train_y = train_y_full - mean[train_cells]
+        test_y = test_y_full - mean[test_cells]
 
         model = DeepCOP(
             num_genes=int(train_y.shape[1]),
             drug_dim=int(train_drug.shape[1]),
             dropout=float(args.dropout),
             use_residual=False,
-            go_matrix=go_matrix,
             original_architecture=bool(args.original_architecture),
             predict_uncertainty=bool(args.predict_uncertainty),
         )
-        model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=float(args.lr)),
-            loss=gaussian_nll_loss(
-                logvar_clip_min=float(args.logvar_clip_min),
-                logvar_clip_max=float(args.logvar_clip_max),
-            ),
-            run_eagerly=False,
-        )
+        model.compile(optimizer=keras.optimizers.Adam(learning_rate=float(args.lr)), loss=combined_loss, run_eagerly=False)
 
-        cb = PCCCallback(
-            loss_mask=loss_mask,
+        cb = GenericPCCCallback(
             train_data=(train_ctl, train_drug, train_y),
             val_data=(test_ctl, test_drug, test_y),
+            evaluate_pack_fn=lambda model_, pack, batch_size, max_eval: _eval_deepcop_pack(
+                model_,
+                pack,
+                batch_size=batch_size,
+                max_eval=max_eval,
+                loss_mask=loss_mask,
+            ),
             batch_size=int(args.batch_size),
             max_eval=int(args.eval_sanity_max_eval),
-            logvar_clip_min=float(args.logvar_clip_min),
-            logvar_clip_max=float(args.logvar_clip_max),
         )
 
         model.fit(
@@ -531,12 +332,11 @@ def main():
                 split_mode=split_mode,
                 y_true=test_full["y_true"],
                 y_pred=test_full["y_pred"],
+                y_logvar=test_full["y_logvar"],
                 sample_pcc=test_full["sample_pcc"],
                 drug_ids=test_drug_ids,
                 cell_names=test_cell_names,
                 trt_distil_ids=test_trt_distil_ids,
-                y_logvar=test_full["y_logvar"],
-                y_sigma=test_full["y_sigma"],
             )
 
         sanity_drug_zero_metrics = None
@@ -565,9 +365,9 @@ def main():
                 "train_metrics": train_metrics,
                 "test_metrics": test_metrics,
                 "pred_npz": pred_npz_path,
-                "use_go_matrix": bool(args.use_go_matrix),
-                "go_fingerprint_path": go_fingerprint_path if bool(args.use_go_matrix) else "",
                 "original_architecture": bool(args.original_architecture),
+                "predict_uncertainty": bool(args.predict_uncertainty),
+                "pcc_lambda": float(args.pcc_lambda),
                 "sanity_drug_zero_metrics": sanity_drug_zero_metrics,
                 "sanity_drug_shuffle_metrics": sanity_drug_shuffle_metrics,
             }

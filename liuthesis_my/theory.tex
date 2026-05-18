@@ -1,146 +1,73 @@
 \chapter{Theory}
-
 \section{Deep neural networks}
-Deep neural networks are built from simple layers. Each layer takes an input. It applies a learned transformation. Then it returns an output. A Feed-Forward Network, or FFN, is one common network structure. Information moves from the input layer to the output layer without feedback loops. If an FFN has only a small number of layers, it is usually called a feed-forward network. If it has several hidden layers, it can also be viewed as a deep neural network. Figure~\ref{fig:fully_connect_network} shows such a feed-forward structure with stacked hidden layers.
+This section introduces only the neural network parts that are used later in the thesis. The baseline model relies on dense layers, nonlinear activations, dropout, normalization, and mini batch training. The graph model also uses residual blocks, layer normalization, and a feed forward block that is used separately on each node.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/fully_connect_network.png}
-    \caption{A Feed-Forward Network with several hidden layers. When an FFN contains several hidden layers, it can also be viewed as a deep neural network.}
+    \caption[Feed Forward Network]{A feed forward network with several hidden layers. The circles represent units and the lines represent learned connections between layers. The highlighted orange unit is one example hidden unit, and the pink unit is the final output.}
     \label{fig:fully_connect_network}
 \end{figure}
 
+\noindent In the method figures used later, arrows show the forward flow of information. Dashed lines are used only as a visual aid. They either show omitted repeated connections or paths that are removed in one training update, depending on the figure. The symbols $W$ and $b$ always denote a weight matrix and a bias vector. In the FFN figure, $\mathrm{FFN}$ refers to the small two layer block that is applied to each node after attention. If the figure shows $N_{\mathrm{in}}$ or $N_{\mathrm{out}}$, these labels refer to the input and output feature dimensions of the displayed transformation.
+
 \subsection{Dense layer}
-Figure~\ref{fig:fully_connect_network} shows a simple feed-forward network. A dense layer is a layer in which every output unit is connected to all input units from the previous layer. Let $x \in \mathbb{R}^{d_{\mathrm{in}}}$ be an input vector. A dense layer maps it to an output vector $h \in \mathbb{R}^{d_{\mathrm{out}}}$:
+A dense layer maps an input vector to a new representation:
 \begin{equation}
 h = \sigma(Wx + b),
 \end{equation}
-Here $W \in \mathbb{R}^{d_{\mathrm{out}} \times d_{\mathrm{in}}}$ is a weight matrix. Here $b \in \mathbb{R}^{d_{\mathrm{out}}}$ is a bias vector. The term $\sigma(\cdot)$ is an activation function. The entries of $W$ and $b$ are learned from data.
-
-\noindent In the figure, the left side is the input layer. It receives the raw input vector. The middle layers are hidden layers. They transform the input step by step. The right side is the output layer. It gives the final prediction.
-
-\noindent These names describe where a layer is in the network. In this figure, the hidden layers are dense layers because they use fully connected mappings. The output layer is also a dense layer if it uses the same fully connected form. But the input layer is usually not counted as a dense layer, because it only holds the input values and does not apply a learned mapping by itself.
+Here $W$ is a weight matrix, $b$ is a bias vector, and $\sigma(\cdot)$ is an activation function. Stacking dense layers lets the model transform the input step by step.
 
 \subsection{Activation functions}
-The activation function adds nonlinearity. Without it, several dense layers still act like one linear map. Common choices are ReLU, sigmoid, and tanh:
+The activation function adds nonlinearity. Without it, several dense layers would still behave like one linear map. The main choice in this thesis is ReLU,
 \begin{equation}
 \mathrm{ReLU}(x)=\max(0,x),
 \end{equation}
-\begin{equation}
-\mathrm{sigmoid}(x)=\frac{1}{1+e^{-x}},
-\end{equation}
-\begin{equation}
-\mathrm{tanh}(x)=\frac{e^x-e^{-x}}{e^x+e^{-x}}.
-\end{equation}
-\noindent Figure~\ref{fig:activation_functions} shows the shapes of these three activation functions.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\linewidth]{figures/activation_functions.png}
-    \caption{Three common activation functions. ReLU is zero for negative inputs and linear for positive inputs. Sigmoid maps inputs to values between 0 and 1. Tanh maps inputs to values between -1 and 1.}
-    \label{fig:activation_functions}
-\end{figure}
-\noindent Different activation functions appeared because one function does not work best in all cases. Sigmoid was used early and it maps values to the range from 0 to 1. This shape is easy to understand, it is useful when the output should look like a probability. But sigmoid can become insensitive when the input is very large or very small. Then the gradient becomes small, and training can slow down.
-
-\noindent Tanh was introduced as another smooth nonlinear function. It maps values to the range from -1 to 1, so its output is centered around zero. This often gives better optimization behaviour than sigmoid in hidden layers. But tanh can also saturate at large positive or negative values, so it can still suffer from weak gradients.
-
-\noindent ReLU became popular because it is simple and works well in deep networks. It keeps positive values and sets negative values to zero. This helps avoid some of the gradient problems of sigmoid and tanh. It also makes the computation simple. For this reason, ReLU is now a common default choice in hidden layers, while sigmoid and tanh are still useful in cases where bounded outputs are needed.
-
-\noindent Modern hidden layers often use ReLU by default for two simple reasons. ReLU is easy to compute, and it usually trains well in deep models. Its positive part keeps a clear gradient, so optimization is often easier than with sigmoid or tanh. For this reason, many deep networks use ReLU or a close variant in hidden layers.
-
-\noindent The output layer is different. Its activation function should match the task. For binary classification, sigmoid is often used because the output can be read as a probability between 0 and 1. For multi class classification, a softmax function is often used for the same reason. For regression, the output layer often uses no activation function, because the model may need to predict any real value. So the choice of output activation depends on the meaning and range of the target.
-
-
+which is used in the dense baseline. ReLU is simple and usually works well in hidden layers. For regression tasks, the final output layer often uses no activation function.
 
 \subsection{Stacked layers}
-A network with $L$ hidden layers uses the same idea many times. If $h^{(0)}=x$, then a deep network can be written as
+If $h^{(0)}=x$, a network with $L$ hidden layers can be written as
 \begin{equation}
 h^{(\ell+1)}=\sigma\!\left(W^{(\ell)}h^{(\ell)}+b^{(\ell)}\right), \quad \ell=0,\dots,L-1.
 \end{equation}
-Here stacked layers means that several layers are connected one after another. The output of one layer becomes the input of the next layer. In this setting, $h^{(0)}=x$ is the input representation. The vectors $h^{(1)}, h^{(2)}, \dots, h^{(L)}$ are hidden representations. The final layer then maps the last hidden representation to the output of the model. Each hidden vector $h^{(\ell)}$ has its own dimension. If layer $\ell$ has width $d_{\ell}$, then $h^{(\ell)} \in \mathbb{R}^{d_{\ell}}$. Then $W^{(\ell)} \in \mathbb{R}^{d_{\ell+1} \times d_{\ell}}$.
+The output of one layer becomes the input of the next, so deeper networks can build more expressive hidden representations.
 
-\subsection{Dropout}
-\noindent Dropout is a simple method to reduce overfitting in deep neural networks~\cite{srivastava2014dropout}. A large network can fit the training data too closely. This often happens when the model has many parameters and the dataset is not large. Then the model may work well on the training set, but it may work less well on new data. Dropout tries to reduce this problem.
+\subsection{Regularization}
+Regularization helps reduce overfitting and discourages solutions that are not useful for the task. In this thesis, two regularization ideas are relevant. The first is dropout, which reduces co adaptation between hidden units. The second is counterfactual regularization, which encourages the model to use drug information rather than relying too strongly on the control profile alone.
 
-\noindent The main idea is simple. The model randomly turns off part of the hidden units during training. If a hidden vector is $h \in \mathbb{R}^{d}$ and the dropout mask is $r \in \{0,1\}^{d}$, the dropped representation can be written as
+\subsubsection{Dropout}
+\noindent Dropout reduces overfitting by randomly removing part of the hidden units during training~\cite{srivastava2014dropout}. If a hidden vector is $h \in \mathbb{R}^{d}$ and the dropout mask is $r \in \{0,1\}^{d}$, the dropped representation can be written as
 \begin{equation}
 \tilde{h}=r \odot h,
 \end{equation}
-\noindent where $\odot$ is element wise multiplication. If one entry of $r$ is zero, the matching hidden unit is removed in that training step. The model samples a new mask for the next mini batch. So the active units can change from one update to the next.
+\noindent where $\odot$ is element by element multiplication. If one entry of $r$ is zero, the matching hidden unit is removed in that update.
 
-\noindent Figure~\ref{fig:dropout} shows this idea. Some hidden units are removed during training, so the network cannot rely on a fixed set of paths.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/dropout.png}
-    \caption{Dropout during training. Some hidden units are removed, so the model uses different paths in different updates.}
+    \caption[Dropout During Training]{Dropout during training. The left side shows the full hidden layer, while the right side shows one training update after dropout is applied. The dashed pink connections show the active paths that remain in that update. Units without a dashed incoming path are dropped for that update. The orange unit is the example target hidden unit and the pink unit is the output.}
     \label{fig:dropout}
 \end{figure}
 
-\noindent This process makes the network less dependent on a small set of hidden units. One unit cannot rely too much on another unit always being present. This often improves generalization. At test time, dropout is turned off. Then the full network is used for prediction.
+\noindent This makes the network less dependent on a small set of hidden units and often helps it work better on new data. At test time, dropout is turned off.
 
-\subsection{Regularization}
-Regularization is a general idea for controlling model complexity. A model with too much freedom can fit noise in the training data, not only the useful signal. Regularization adds a constraint or a penalty. This pushes the model toward simpler solutions. This often improves performance on unseen data.
+\subsubsection{Counterfactual regularization}
+\noindent Counterfactual regularization compares two forward passes for the same sample. One pass uses the original input, and the other uses a modified version. The modified input represents a simple alternative where an important part of the input is missing or changed. That is why it is called counterfactual. If the removed or perturbed part carries useful information for the task, the original input is expected to give a better prediction than the counterfactual input.
 
-\noindent A common form is weight regularization. Let the original training loss be $\mathcal{L}_{\mathrm{data}}$. Then the total loss can be written as
+\noindent The comparison here is simple. The model sees the same sample twice, once in its original form and once in a modified form. The training objective then encourages the model to perform better with the full input than with the modified input.
+
+\noindent Let $\mathcal{L}_{\mathrm{full}}$ be the prediction loss from the original input and let $\mathcal{L}_{\mathrm{cf}}$ be the prediction loss from the counterfactual input. A hinge style penalty can then be written as
 \begin{equation}
-\mathcal{L}=\mathcal{L}_{\mathrm{data}}+\lambda \Omega(\theta),
+\mathcal{L}_{\mathrm{hinge}}=\max\!\left(0,\delta-\left(\mathcal{L}_{\mathrm{cf}}-\mathcal{L}_{\mathrm{full}}\right)\right).
 \end{equation}
-Here $\theta$ is the set of model parameters. The term $\Omega(\theta)$ is a penalty term. The value $\lambda$ controls the strength of the penalty.
-
-\noindent Two common choices are L1 and L2 regularization. L1 regularization uses the sum of absolute values of the parameters:
+The training objective becomes
 \begin{equation}
-\Omega_{\mathrm{L1}}(\theta)=\sum_{j} |\theta_{j}|,
+\mathcal{L}=\mathcal{L}_{\mathrm{full}}+\lambda_{\mathrm{cf}}\mathcal{L}_{\mathrm{hinge}}.
 \end{equation}
-L2 regularization uses the sum of squared values:
-\begin{equation}
-\Omega_{\mathrm{L2}}(\theta)=\sum_{j} \theta_{j}^{2}.
-\end{equation}
-L1 regularization can encourage sparse parameters. L2 regularization usually makes the weights smaller and smoother.
-
-\noindent In deep learning, L2 regularization is often called weight decay. It discourages very large weights. It can also make the model less sensitive to small changes in the input. Dropout is also a regularization method, but it works in a different way. It removes hidden units during training instead of directly penalizing the parameter values.
-
-\subsection{Normalization layers}
-Normalization layers control the scale of hidden activations during training. If the scale changes too much across layers or training steps, optimization can become unstable. Normalization can make training easier. It can also improve convergence. Two common methods are batch normalization and layer normalization.
-
-\noindent For a mini batch activation $a$, batch normalization subtracts a batch mean and divides by a batch standard deviation:
-\begin{equation}
-\mathrm{BN}(a)=\gamma \frac{a-\mu_{\mathrm{batch}}}{\sqrt{\sigma_{\mathrm{batch}}^{2}+\epsilon}}+\beta,
-\end{equation}
-Here $\gamma$ and $\beta$ are learned scale and shift parameters. Batch normalization uses statistics from the current mini batch. So its behaviour depends on the other samples in the same batch.
-
-\noindent Layer normalization uses the same idea. But it computes the mean and variance from one sample across the hidden features of that sample. For a hidden vector $h \in \mathbb{R}^{d}$, it can be written as
-\begin{equation}
-\mathrm{LN}(h)=\gamma \frac{h-\mu_{\mathrm{layer}}}{\sqrt{\sigma_{\mathrm{layer}}^{2}+\epsilon}}+\beta,
-\end{equation}
-Here $\mu_{\mathrm{layer}}$ and $\sigma_{\mathrm{layer}}^{2}$ are computed from the features of the same sample.
-
-\noindent The two methods have different strengths. Batch normalization often works well when mini batches are large and stable. Layer normalization does not depend on batch statistics. So it is often more convenient when batch size is small or when the model processes one sample at a time. It is also common in sequence models and graph attention models.
-
-\noindent In short, batch normalization normalizes across the batch, while layer normalization normalizes within one sample. Both methods aim to make optimization more stable, but they use different sources of statistics.
-
-\subsection{Residual connections}
-Residual connections add the input of a block back to its output~\cite{he2016residual}. If a block computes a transformation $f(x)$, the residual form returns
-\begin{equation}
-z=x+f(x).
-\end{equation}
-Figure~\ref{fig:residual_connections} shows this idea. The input $x$ goes through the stacked layers and also follows a shortcut path. These two paths are added at the end.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.55\linewidth]{figures/resNet.png}
-    \caption{A residual connection. The input follows both the main stacked layers and a shortcut path, and the two outputs are added together.}
-    \label{fig:residual_connections}
-\end{figure}
-
-\noindent This design keeps a direct path from the input to the output of the block. So the model can preserve useful information from earlier layers more easily.
-
-\noindent Residual connections are especially useful in deep networks. When many layers are stacked, optimization can become harder. The gradient can also become weaker as it moves backward through the model. A residual path helps information and gradients move through the network more directly. This often makes training more stable.
-
-\noindent Another way to view a residual block is simple. The block only needs to learn a change to the input, not a completely new representation. If the best choice is close to the identity mapping, the residual form can represent it more easily. So residual connections are widely used in modern deep models, including graph attention networks.
+\noindent This penalty encourages the prediction from the original input to be better than the prediction from the counterfactual input by at least a margin $\delta$~\cite{wachter2017counterfactual}. In this way, the model is discouraged from ignoring the information that was perturbed or removed. A task specific use of this idea is introduced later in the methodology chapter.
 
 \subsection{Mini batches, learning rate, and optimizer}
-Training usually uses mini batches instead of the full dataset. A mini batch is a small subset of samples. It gives one noisy estimate of the gradient. The learning rate controls the step size of each parameter update. If it is too large, training can become unstable. If it is too small, training can become very slow.
+During training, the full dataset is usually split into smaller groups called mini batches. Instead of using the whole dataset for every parameter update, the model uses one mini batch at a time to compute the loss and gradient. After all mini batches have been processed once, one training epoch is completed. The learning rate controls the step size of each update.
 
 \noindent If the model parameters are written as $\theta$ and the loss on one mini batch is $\mathcal{L}_{\mathcal{B}}(\theta)$, a simple gradient based update is
 \begin{equation}
@@ -148,64 +75,65 @@ Training usually uses mini batches instead of the full dataset. A mini batch is 
 \end{equation}
 where $\eta$ is the learning rate.
 
-\noindent Adam is a widely used optimizer~\cite{kingma2015adam}. It combines two ideas. One is momentum. This part keeps a running average of past gradients. The other is adaptive scaling. This part keeps a running average of squared gradients. Together, these two parts help the optimizer choose smoother updates and a parameter specific scale.
+\noindent Adam is a widely used optimizer~\cite{kingma2015adam}. It combines information from past gradients and squared gradients to produce smoother parameter updates, and it is used in the experiments reported later.
 
-\noindent Let $g_{t}=\nabla_{\theta}\mathcal{L}_{\mathcal{B}}(\theta_{t})$ be the gradient at step $t$. Adam updates the first moment estimate and the second moment estimate as
-\begin{equation}
-m_{t}=\beta_{1}m_{t-1}+(1-\beta_{1})g_{t},
-\end{equation}
-\begin{equation}
-v_{t}=\beta_{2}v_{t-1}+(1-\beta_{2})g_{t}^{2},
-\end{equation}
-Here $m_{t}$ is the moving average of the gradient. Here $v_{t}$ is the moving average of the squared gradient. The values $\beta_{1}, \beta_{2} \in (0,1)$ control how strongly past values are remembered.
+\subsection{Batch and layer normalization}
+Normalization helps keep hidden activations in a more stable range during training. This thesis uses two common forms, namely batch normalization and layer normalization.
 
-\noindent These moving averages start from zero. So Adam also uses bias corrected versions:
+\noindent Batch normalization and layer normalization use the same basic normalization form. The difference is how the mean and variance are computed. Let $a_{ij}$ denote the activation value of feature $j$ for sample $i$ in one mini batch of size $B$. In batch normalization, one mean and one variance are computed for each feature across the mini batch:
 \begin{equation}
-\hat{m}_{t}=\frac{m_{t}}{1-\beta_{1}^{t}}, \qquad
-\hat{v}_{t}=\frac{v_{t}}{1-\beta_{2}^{t}}.
+\mu_{\mathrm{batch},j}=\frac{1}{B}\sum_{i=1}^{B} a_{ij},
+\qquad
+\sigma_{\mathrm{batch},j}^{2}=\frac{1}{B}\sum_{i=1}^{B}(a_{ij}-\mu_{\mathrm{batch},j})^2.
 \end{equation}
-The parameter update is then
+
+\noindent In layer normalization, the same idea is used, but the mean and variance are computed across the hidden features of one sample. Here $h_{ij}$ denotes feature $j$ in the hidden representation of sample $i$, and $d$ is the hidden dimension:
 \begin{equation}
-\theta_{t+1}=\theta_{t}-\eta \frac{\hat{m}_{t}}{\sqrt{\hat{v}_{t}}+\epsilon},
+\mu_{\mathrm{layer},i}=\frac{1}{d}\sum_{j=1}^{d} h_{ij},
+\qquad
+\sigma_{\mathrm{layer},i}^{2}=\frac{1}{d}\sum_{j=1}^{d}(h_{ij}-\mu_{\mathrm{layer},i})^2.
 \end{equation}
-Here $\epsilon$ is a small constant for numerical stability.
 
-\noindent In simple terms, Adam uses the first moment to choose a stable update direction. It uses the second moment to reduce the step size when recent gradients are large. This often makes training easier in deep models with many parameters. So Adam is a common choice in practice.
+\noindent After these statistics are computed, the normalization step has the same form:
+\begin{equation}
+\mathrm{Norm}(x)=\gamma \frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}+\beta.
+\end{equation}
+Here $\gamma$ and $\beta$ are learned scale and shift parameters, and $\epsilon$ is a small constant added to avoid division by zero. Batch normalization is used in the dense baseline, while layer normalization is used in the graph attention blocks.
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/BN_LN.png}
+    \caption[Batch vs Layer Normalization]{Comparison of batch normalization and layer normalization. The left panel shows batch normalization, where the statistics are computed for each feature over the mini batch. The right panel shows layer normalization, where the statistics are computed over the hidden features of one sample.}
+    \label{fig:bn_ln}
+\end{figure}
+
+\FloatBarrier
 \section{Graph neural networks}
 \subsection{Graphs}
-A graph represents relations between a collection of entities. The entities are called nodes, and the relations are called edges. Mathematically, a graph is written as $G=(V,E)$, where $V$ is the set of nodes and $E$ is the set of edges. Each edge connects a pair of nodes. Figure~\ref{fig:graph_components} shows the main parts of a graph.
+A graph represents relations between a collection of objects. The objects are called nodes, and the relations are called edges. Mathematically, a graph is written as $G=(V,E)$, where $V$ is the set of nodes and $E$ is the set of edges. Each edge connects a pair of nodes. Figure~\ref{fig:graph_components} shows a simple directed graph.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/The composition of graph.png}
-    \caption{Main components of a graph. A graph can contain node attributes, edge attributes, and global information.}
+    \includegraphics[width=0.369\linewidth]{figures/graph.png}
+    \caption[Directed Graph Example]{Example of a directed graph. The circles are nodes, and the arrows are directed edges that show the direction of a relation from one node to another. In graph based models, nodes can also carry feature vectors and edges can carry attributes such as direction, sign, or weight.}
     \label{fig:graph_components}
 \end{figure}
 
+\noindent In this example, $N_1$, $N_2$, $N_3$, and $N_4$ are nodes. The arrows indicate that the relations have direction, so an edge from $N_1$ to $N_3$ is not the same as an edge from $N_3$ to $N_1$. In many graph learning settings, each node can additionally have its own feature vector, and each edge can also have attributes such as a sign or a weight.
+
 \subsection{Inputs}
-The input to a graph neural network is not only the graph structure. It usually includes the graph connectivity together with feature information attached to nodes, edges, or the whole graph. Let a graph have $N$ nodes. Its connectivity can be written as an adjacency matrix $A \in \mathbb{R}^{N \times N}$. If node features have dimension $F_{0}$, then the initial node feature matrix is
-\begin{equation}
-H^{(0)} \in \mathbb{R}^{N \times F_{0}}.
-\end{equation}
-The pair $(A,H^{(0)})$ is the most basic input to a graph neural network.
+The input to a graph neural network is not only the graph structure. It usually includes the graph connectivity together with feature information attached to nodes, edges, or the whole graph. Let a graph have $N$ nodes. Its connectivity can be written as an adjacency matrix $A$, and the initial node feature matrix can be written as $H^{(0)}$. The pair $(A,H^{(0)})$ is the most basic input to a graph neural network.
 
 \noindent In practice, the graph structure is often stored as an adjacency matrix. Figure~\ref{fig:graph_to_adj} shows this idea. The graph on the left is written as a matrix on the right. If there is an edge from node $N_j$ to node $N_i$, then the corresponding entry in the matrix is nonzero. If there is no edge, the entry is zero. This matrix form is convenient because the model can use it directly in message passing and neighborhood aggregation.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.81\linewidth]{figures/graph2adj.png}
-    \caption{From a graph to its adjacency matrix. The graph structure is converted into a matrix form so that graph connections can be used in computation.}
+    \includegraphics[width=0.8075\linewidth]{figures/graph2adj.png}
+    \caption[Graph to Adjacency Matrix]{From a graph to its adjacency matrix. The graph structure is converted into a matrix form so that graph connections can be used in computation.}
     \label{fig:graph_to_adj}
 \end{figure}
 
-\noindent A node can have its own attributes, such as an expression value, a node type, or any other feature vector. An edge can also have attributes, such as direction, sign, or weight. Some tasks also use graph level information that is shared by the whole graph. So a GNN can use more than one kind of input. The adjacency matrix tells the model which nodes are connected. The node feature matrix tells the model what information is stored at each node. Edge and graph level attributes can provide extra information when they are available.
-
-\noindent One detail that needs attention is the self loop. A self loop means that a node is also connected to itself. In the adjacency matrix, this appears on the diagonal. Adding self loops is common in graph neural networks because it lets the model include the node's own feature during aggregation. Without self loops, a layer may only collect neighbor information at that stage and may lose the target node's own signal too quickly.
-
-\noindent This point is especially important in biological graphs. In a gene to gene interaction network, a self loop usually does not mean that a gene truly interacts with itself in the same way as it interacts with another gene. So the added diagonal entry should not be read as a biological claim. It is mainly a computational design that helps preserve self information during propagation.
-
-\noindent For this thesis, adding self loops does not necessarily mean that the model is introducing a wrong biological relation. It means that the layer is allowed to keep part of the current node state while also collecting neighbour signals. This can be useful, but it can also change the relative weight of self and neighbour information. So the effect of self loops should be understood as part of the model architecture rather than as part of the original graph semantics.
+\noindent A node can have its own attributes, such as an expression value or a feature vector. An edge can also have attributes, such as direction, sign, or weight. Adding self loops is also common, because it lets the model keep part of the node's own state during aggregation. In biological graphs, such self loops should be understood as a model design choice rather than as a biological claim.
 
 \subsection{Graph direction}
 Graphs can be directed or undirected. In an undirected graph, the connection between two nodes has no direction. Information can move both ways. In a directed graph, each edge has a source node and a target node. So information flows from one node to another in a specific direction.
@@ -215,118 +143,84 @@ Graphs can be directed or undirected. In an undirected graph, the connection bet
 \subsection{Message passing mechanism}
 This is the core idea that lets a graph neural network use the graph structure. The network works by moving data along the edges of the graph. In one layer, a node gets messages from its directly connected neighbors. For example, look at Figure~\ref{fig:gnn_message_pass_update}. Node $N_4$ collects data from its direct neighbors $N_1$, $N_2$, and $N_3$. This figure only shows what happens in one layer.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.71\linewidth]{figures/gnn_message_update_aggegrate.png}
-    \caption{Message passing in a single layer. Messages from neighbors are grouped together and then used to update the target node.}
+    \includegraphics[width=0.646\linewidth]{figures/gnn_message_update_aggegrate.png}
+    \caption[Single Layer Message Passing]{Message passing in a single layer. Messages from neighbors are grouped together and then used to update the target node.}
     \label{fig:gnn_message_pass_update}
 \end{figure}
 
-\noindent After one layer, a node holds information from its direct neighbors. When we stack more layers, the range becomes larger. Then a node can also receive information from neighbors of neighbors. This growing range is often called the receptive field.
+\noindent After one layer, a node holds information from its direct neighbors. When more layers are stacked, the receptive field becomes larger and the node can also receive information from more distant parts of the graph.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/2_layers_message_passing.png}
-    \caption{How message passing expands across layers. The yellow node $N_1$ is the target node. After one layer, it receives information from its one hop neighbors $N_2$, $N_3$, and $N_4$. After two layers, information from the two hop neighbors $N_5$ to $N_9$ can also reach $N_1$ through the intermediate nodes.}
+    \caption[Two Layer Message Passing]{How message passing expands across layers. The yellow node $N_1$ is the target node. After one layer, it receives information from its one hop neighbors $N_2$, $N_3$, and $N_4$. After two layers, information from the two hop neighbors $N_5$ to $N_9$ can also reach $N_1$ through the intermediate nodes.}
     \label{fig:two_layer_message_passing}
 \end{figure}
 
-\noindent Figure~\ref{fig:two_layer_message_passing} shows this idea more clearly. In the first layer, node $N_1$ only uses the states of $N_2$, $N_3$, and $N_4$. In the second layer, those intermediate nodes have already been updated with information from $N_5$ to $N_9$. Because of this, node $N_1$ can indirectly use a larger part of the graph even though each layer still only passes messages along local edges.
+\noindent Figure~\ref{fig:two_layer_message_passing} shows this idea. In the first layer, node $N_1$ only uses the states of its one hop neighbors. In the second layer, those neighbors already contain information from nodes that are two hops away. This is why stacking local message passing layers still expands the effective range of information flow.
 
-\noindent This whole message passing process has two simple steps. One step is \textbf{Aggregation}, which groups the incoming neighbor signals. The other step is \textbf{Update}, which calculates the new state of the target node. The next two parts explain these steps more clearly.
+\noindent Message passing can be separated into two steps. Aggregation groups the incoming neighbor signals, and update uses the grouped message to compute a new node state.
 
 \subsubsection{Aggregation}
-The first step is aggregation. This step combines data from neighbor nodes into one single vector. We write a general aggregation operator $\square$ at layer $\ell$ like this:
+The first step is aggregation. In this step, node $v$ collects the messages sent by its neighbors and turns them into one summary vector. Here, $\mathcal{N}(v)$ denotes the set of neighbors that send messages to node $v$. In a directed graph, these are the incoming neighbors of $v$. A common way to write this step is
 \begin{equation}
-m_{\mathcal{N}(v)}^{(\ell)} = \square_{u \in \mathcal{N}(v)} m_{u \rightarrow v}^{(\ell)},
+m_{\mathcal{N}(v)}^{(\ell)} = \mathrm{Agg}^{(\ell)}\!\left(\left\{m_{u \rightarrow v}^{(\ell)} \mid u \in \mathcal{N}(v)\right\}\right),
 \end{equation}
-Here, the term $m_{u \rightarrow v}^{(\ell)}$ is a message from neighbor $u$ to node $v$. The grouped message vector $m_{\mathcal{N}(v)}^{(\ell)}$ collects the total signal from the local neighbors.
+Here, $m_{u \rightarrow v}^{(\ell)}$ is the message sent from neighbor $u$ to node $v$ at layer $\ell$. The braces indicate that aggregation uses the full set of incoming messages as input. The symbol $\mathrm{Agg}^{(\ell)}$ stands for the aggregation function that combines these messages into one summary vector. Common choices for $\mathrm{Agg}^{(\ell)}$ are sum, mean, and max.
 
-\noindent A graph does not have a fixed order for its neighbors. So, the aggregation step must not depend on the order of neighbors. Because of this, graph networks often use simple math rules like sum, max, or average.
-
-\noindent A sum aggregator adds all neighbor messages together. This keeps all the data, but the total gets bigger when a node has many neighbors. An average aggregator finds the mean of the neighbor messages. This keeps the scale balanced. A max aggregator just takes the largest value in each feature dimension. This grabs the strongest local signal, but it drops the rest of the neighbor data.
-
-\noindent Different aggregation rules can lead to different behaviour. Sum can preserve more information about the full neighbourhood. Mean can give a more stable scale across nodes with different degrees. Max can focus on the strongest neighbour signal. The best choice depends on the task and the graph structure. In some models, the node's own feature is also included in this aggregation step. This can be done by adding a self loop, so the node is treated as part of its own neighbourhood.
+\noindent The neighbors of a node do not come in a natural left to right order. For this reason, the summary should stay the same even if the neighbors are listed in a different order.
 
 \subsubsection{Update}
-After aggregation, the network updates the target node. This step uses the grouped neighbor data to make a new node state. An update at layer $\ell$ uses a learned function $\psi^{(\ell)}$. We write it like this:
+The second step is update. After the neighbor messages have been summarized, the node combines this summary with its current state and produces a new state. An update at layer $\ell$ uses a learned function $\psi^{(\ell)}$:
 \begin{equation}
 h_{v}^{(\ell+1)} = \psi^{(\ell)}\!\left(h_{v}^{(\ell)}, m_{\mathcal{N}(v)}^{(\ell)}\right),
 \end{equation}
-Here, $h_{v}^{(\ell)}$ is the state of node $v$ at layer $\ell$. If the next layer has size $F_{\ell+1}$, then the new state is $h_{v}^{(\ell+1)} \in \mathbb{R}^{F_{\ell+1}}$. The update function takes the target node's old state and the grouped message $m_{\mathcal{N}(v)}^{(\ell)}$. Then it combines them to make the new state $h_{v}^{(\ell+1)}$.
+Here, $h_{v}^{(\ell)}$ is the state of node $v$ at layer $\ell$, and $h_{v}^{(\ell+1)}$ is the updated state at the next layer. The role of $\psi^{(\ell)}$ is to decide how the node should change after receiving the summarized neighbor message. This is different from the aggregation step itself. Aggregation combines neighbor messages, while the update step changes the node state.
 
-\noindent Look at the bottom of Figure~\ref{fig:gnn_message_pass_update}. We usually do this by putting the target node vector and the grouped neighbor vector together. This is called concatenation. After this, the function $\psi^{(\ell)}$ applies a simple linear mapping and a nonlinear activation. So there are two common ways to keep the node's own information. One way is to include it earlier in aggregation by adding a self loop. The other way is to keep it separate and fuse it with the neighbour message in the update step. Aggregation only collects data. The update function is what actually changes the node state. After a few layers, the model gets the final node states for the predictions.
+\noindent The update function is the step that actually changes the node state. In a mini batch, the graph structure stays the same for all samples. The model repeats these aggregation and update steps for several layers. After that, it gets the final node states.
 
-\noindent For a mini batch of size $B$, the final node feature updates for the whole layer look like this tensor:
-\begin{equation}
-H^{(\ell)} \in \mathbb{R}^{B \times N \times F_{\ell}}.
-\end{equation}
-In this batch, the graph structure matrix $A \in \mathbb{R}^{N \times N}$ is the same for all samples. The model repeats these aggregation and update steps for several layers. After that, it gets the final robust node states.
-
-\noindent The final node representation matrix is $H^{(L)} \in \mathbb{R}^{N \times F_{L}}$. The learned parameters of a GNN include the weight matrices inside each message passing layer. What happens next depends on the output form of the model.
+\noindent The final node representation matrix is denoted by $H^{(L)}$. What happens next depends on the output form of the model.
 
 \subsection{Output}
-Graph neural networks can produce outputs at different levels. A node level output gives one prediction for each node. This is used in node classification and node regression. An edge level output gives one prediction for a pair of nodes or for an existing edge. This is common in link prediction and edge classification. A graph level output gives one prediction for the whole graph. This is often used in graph classification or graph regression.
+Graph neural networks can produce several kinds of outputs. One common choice is one prediction for each node. This is used in node classification and node regression. Another choice is one prediction for a pair of nodes or for an existing edge. This is common in link prediction and edge classification. A third choice is one prediction for the whole graph. This is often used in graph classification or graph regression.
 
-\noindent The output level determines how the final hidden states are used. For node level output, the model applies a predictor to each row of $H^{(L)}$. So each node keeps its own final representation and receives its own output. For edge level output, the model combines the representations of two nodes, and sometimes also an edge feature, to predict a relation between them. For graph level output, the model must reduce all node representations to one graph representation before the final prediction.
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.64\linewidth]{figures/gnn_output.png}
+    \caption[GNN Output Types]{Three common GNN output types. A GNN can produce one output for each node, one output for a selected edge, or one output for the whole graph after a readout step.}
+    \label{fig:gnn_output}
+\end{figure}
+
+\noindent The output type determines how the final hidden states are used. If the model predicts one value for each node, it applies a predictor to each row of $H^{(L)}$. If the model predicts one value for an edge, it combines the representations of two nodes, and sometimes also an edge feature, to predict a relation between them. If the model predicts one value for the whole graph, it must reduce all node representations to one graph representation before the final prediction.
 
 \noindent This reduction step is usually called pooling or readout. Common choices are sum pooling, mean pooling, and max pooling. Sum pooling adds node vectors and can reflect graph size. Mean pooling gives a more normalized summary. Max pooling keeps the strongest value in each feature dimension. Some models also use attention based pooling, where the model learns which nodes should contribute more to the graph representation.
 
-\noindent The output level is related to the final task, but the task itself can still vary within the same level. For example, node level output can be used for either classification or regression. Graph level output can also be used for either classification or regression. In this thesis, the model predicts a continuous perturbation response value for each gene. Each gene is treated as a node in the biological graph. So the thesis uses a node level output, and the task is node level regression.
-
-\subsection{Graph Convolutional Networks (GCN)}
-Figure~\ref{fig:gcn_pipeline} shows a simple view of graph convolutional propagation. Graph Convolutional Networks, or GCNs, are a standard GNN architecture~\cite{kipf2017semi}. The main idea is simple. Each node updates its representation by combining its own information with information from nearby nodes. The graph structure gives the weights. So connected nodes can share information.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.95\linewidth]{figures/gcn_pipeline.png}
-    \caption{A simple view of Graph Convolutional Networks. The input graph is processed by graph convolution layers, and the learned node representations are used for prediction.}
-    \label{fig:gcn_pipeline}
-\end{figure}
-
-\noindent A GCN usually has an input layer, one or more graph convolution layers, and an output layer. The input layer provides the initial node feature vectors. Each graph convolution layer updates the node representations by mixing information from neighbouring nodes. The output layer uses the final node representations for prediction. So deeper GCNs can use information from a larger part of the graph.
-
-\noindent The GCN used in this thesis follows the common formulation of Kipf and Welling~\cite{kipf2017semi}. This formulation gives a simple and efficient graph convolution rule. Instead of using a more complicated graph transformation, it uses a normalized propagation matrix that is easy to compute in practice.
-
-\noindent Let the graph have $N$ nodes. Then the adjacency matrix is $A \in \mathbb{R}^{N \times N}$. Let $I \in \mathbb{R}^{N \times N}$ be the identity matrix. Then $\tilde{A}=A+I \in \mathbb{R}^{N \times N}$ adds self loops to the graph. Let $\tilde{D} \in \mathbb{R}^{N \times N}$ be the degree matrix of $\tilde{A}$. Then the normalized propagation matrix is
-\begin{equation}
-\hat{A}=\tilde{D}^{-1/2}\tilde{A}\tilde{D}^{-1/2}.
-\end{equation}
-A GCN layer computes
-\begin{equation}
-H^{(\ell+1)}=\sigma\!\left(\hat{A}H^{(\ell)}W^{(\ell)}\right),
-\end{equation}
-where $\hat{A} \in \mathbb{R}^{N \times N}$, $H^{(\ell)} \in \mathbb{R}^{N \times F_{\ell}}$, $W^{(\ell)} \in \mathbb{R}^{F_{\ell} \times F_{\ell+1}}$, and $H^{(\ell+1)} \in \mathbb{R}^{N \times F_{\ell+1}}$. Here $F_{\ell}$ is the feature dimension of the node representation before the layer, and $F_{\ell+1}$ is the feature dimension after the layer. In other words, each row of $H^{(\ell)}$ is the feature vector of one node at layer $\ell$.
-
-\noindent This equation has three parts. The matrix multiplication $H^{(\ell)}W^{(\ell)}$ first transforms the node representations. The matrix $\hat{A}$ then mixes information across neighbouring nodes. The activation function $\sigma(\cdot)$ adds nonlinearity. Because of the self loops in $\tilde{A}$, a node also keeps part of its own information in the update.
-
-\noindent The normalization by $\tilde{D}^{-1/2}$ is also important. Without it, nodes with many neighbours could dominate the aggregation. The normalization keeps the scale of the update more stable across nodes with different degrees. This makes training easier. It also often improves performance.
-
-\noindent The same layer can also be understood at the node level. The new representation of node $v$ is a weighted combination of transformed features from its neighbours and from itself. So one GCN layer lets a node collect one step of local graph information. Two layers let it collect information from nodes that are two steps away. This is why stacking layers increases the receptive field of the model.
-
-\noindent GCNs are simple and widely used. They work well when local neighbourhood averaging is a reasonable assumption. But they treat neighbours with a fixed normalized weighting rule. This can be a limitation when some neighbours are much more important than others. This point motivates later variants such as Graph Attention Networks.
+\noindent The output type is related to the final task, but the task itself can still vary within the same setting. For example, predictions for each node can be used for either classification or regression. Predictions for the whole graph can also be used for either classification or regression. In this thesis, the model predicts a continuous drug response value for each gene. Each gene is treated as a node in the biological graph. So the thesis predicts one continuous value for each node.
 
 \subsection{Graph Attention Networks (GAT)}
-Graph Attention Networks, or GATs, give different weights to different neighbours~\cite{velickovic2018graph}. Figure~\ref{fig:attention_mechanism} shows how the attention weights are computed.
+Graph Attention Networks (GATs) give different weights to different neighbours~\cite{velickovic2018graph}. Figure~\ref{fig:attention_mechanism} shows how the attention weights are computed.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/attention_mechnisam.png}
-    \caption{Computation of attention scores and normalized attention weights in a graph attention layer. Node features are projected, compared, passed through LeakyReLU, and then normalized by softmax.}
+    \caption[GAT Attention Scores]{Computation of attention scores and normalized attention weights in a graph attention layer. The left side shows source and target node features. The middle stacked vectors show their linear projections and concatenation. The arrows show the computation path from projection to score, from score to softmax, and then to the normalized output feature.}
     \label{fig:attention_mechanism}
 \end{figure}
 
-\noindent The key difference from GCN is simple. GAT does not use one fixed normalized weighting rule for all neighbours. Instead, it learns how important each neighbour is for the current target node. This makes the aggregation more flexible. If one neighbour carries more useful information, the model can give it a larger weight. If another neighbour is less useful, the model can reduce its influence.
+\noindent GAT differs from GCN because it does not use one fixed normalized weighting rule for all neighbours. Instead, it learns how important each neighbour is for the current target node. This makes the aggregation more flexible.
 
-\noindent Let $h_{u}^{(\ell)}, h_{v}^{(\ell)} \in \mathbb{R}^{F_{\ell}}$ be node representations at layer $\ell$. A GAT layer first applies a learned projection
+\subsubsection{GAT layer}
+\noindent Let $h_{u}^{(\ell)}$ and $h_{v}^{(\ell)}$ be node representations at layer $\ell$. A GAT layer first applies a learned projection
 \begin{equation}
 z_{u}^{(\ell)} = W^{(\ell)} h_{u}^{(\ell)},
 \end{equation}
-Here $W^{(\ell)} \in \mathbb{R}^{F_{\ell+1} \times F_{\ell}}$. It then computes an attention score
+Here $W^{(\ell)}$ is a learned projection matrix. It then computes an attention score
 \begin{equation}
 e_{u \rightarrow v}=\mathrm{LeakyReLU}\!\left(a^{\top}\left[z_{u}^{(\ell)} \Vert z_{v}^{(\ell)}\right]\right),
 \end{equation}
-Here $a \in \mathbb{R}^{2F_{\ell+1}}$. The LeakyReLU function is
+Here $a$ is a learned vector, and $\Vert$ denotes concatenation of the two projected node vectors. The LeakyReLU function is
 \begin{equation}
 \mathrm{LeakyReLU}(x)=
 \begin{cases}
@@ -334,26 +228,21 @@ x, & x \ge 0, \\
 \alpha x, & x < 0,
 \end{cases}
 \end{equation}
-Here $\alpha$ is a small positive constant.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.52\linewidth]{figures/leakyrelu_function.png}
-    \caption{LeakyReLU activation function. The negative side keeps a small slope instead of becoming flat.}
-    \label{fig:leakyrelu_function}
-\end{figure}
-
-\noindent Figure~\ref{fig:leakyrelu_function} shows the shape of LeakyReLU. It is used here because attention scores should still keep some information on the negative side. A standard ReLU would map all negative scores to zero and remove small differences between weakly relevant edges. The normalized attention weight is
+Here $\alpha$ is a small positive constant. The normalized attention weight is
 \begin{equation}
-\alpha_{u \rightarrow v}=\mathrm{softmax}_{u}\!\left(e_{u \rightarrow v}\right).
+\alpha_{u \rightarrow v}=
+\frac{\exp(e_{u \rightarrow v})}
+{\sum_{u' \in \mathcal{N}(v)} \exp(e_{u' \rightarrow v})}.
 \end{equation}
+This normalization is carried out over all neighbors that send messages to node $v$. If the graph layer includes a self loop, then node $v$ is also included in $\mathcal{N}(v)$.
 The new node representation is
 \begin{equation}
 h_{v}^{(\ell+1)}=\sigma\!\left(\sum_{u \in \mathcal{N}(v)} \alpha_{u \rightarrow v} z_{u}^{(\ell)}\right).
 \end{equation}
 
-\noindent These attention weights are learned from data. They depend on the features of both the source node and the target node. So the importance of one neighbour does not have to be the same for all target nodes. This is one reason why GAT can adapt better than GCN when the graph contains neighbours with very different relevance.
+\noindent These attention weights are learned from data. They depend on the features of both the source node and the target node, so the same neighbour can receive different importance in different local settings.
 
+\subsubsection{Multi-head attention}
 \noindent GAT can also use several attention heads in parallel. If the model uses $K$ heads, each head has its own projection and attention parameters. The outputs can be concatenated or averaged, depending on the layer design.
 
 \noindent If each head outputs $F_{\mathrm{head}}$ features and the model concatenates the heads, then the output width is
@@ -362,24 +251,72 @@ F_{\ell+1}=K F_{\mathrm{head}}.
 \end{equation}
 This relation is useful when model dimensions are chosen in practice.
 
-\noindent Multi head attention gives the model several different views of the same neighbourhood. One head may focus on one type of relation. Another head may focus on a different pattern. Using several heads can make the representation richer and more stable than using one attention rule alone.
+\noindent Multi head attention gives the model several views of the same neighborhood and can make the representation richer than using one attention rule alone.
 
-\noindent In many practical GAT blocks, the attention update is not the only operation. After neighbour information has been aggregated, the model often applies an additional feed forward transformation to each node representation. This helps refine the node state after the attention step.
+\subsubsection{Residual connections}
+Residual connections add the input of a block back to its output~\cite{he2016residual}. If a block computes a transformation $f(x)$, the residual form returns
+\begin{equation}
+z=x+f(x).
+\end{equation}
+Figure~\ref{fig:residual_connections} shows this idea. The input $x$ goes through the stacked layers and also follows a shortcut path. These two paths are added at the end.
 
-\subsubsection{Position-wise feed-forward block after GAT}
-In this context, FFN means a Position-wise Feed-Forward Network. This is different from the FFN introduced at the beginning of the chapter. There, FFN referred to a whole feed forward network with stacked dense layers. Here, it refers to a small block placed after the GAT attention update. The same transformation is applied to each node separately.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.81\linewidth]{figures/FFN.png}
-    \caption{A Position-wise Feed-Forward Network block. It consists of two linear transformations with a nonlinear activation function in between.}
+    \includegraphics[width=0.4455\linewidth]{figures/resNet.png}
+    \caption[Residual Connection]{A residual connection. The input follows both the main stacked layers and a shortcut path, and the two outputs are added together.}
+    \label{fig:residual_connections}
+\end{figure}
+
+\noindent This design keeps a direct path from the input to the output of the block. It helps preserve useful information from earlier layers and often makes optimization more stable in deeper models.
+
+\subsubsection{Feed forward network after attention}
+In Transformer related models, an attention layer is often followed by a small two layer block, often called an FFN~\cite{vaswani2017attention}. In this thesis, the term FFN in this part always refers to that small block after attention, not to the full feed forward network shown earlier in the chapter.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.715\linewidth]{figures/FFN.png}
+    \caption[FFN Block]{A small two layer block applied to each node representation after attention. The input vector is transformed by a first affine map with parameters $W_{1}$ and $b_{1}$, then passed through a nonlinear activation, and then mapped back by a second affine map with parameters $W_{2}$ and $b_{2}$. If the figure shows $N_{\mathrm{in}}$ and $N_{\mathrm{out}}$, they indicate the input width and the hidden width of this block. The arrows show the forward data flow.}
     \label{fig:ffn_block}
 \end{figure}
 
-\noindent Figure~\ref{fig:ffn_block} shows the structure of this block. It applies two linear layers to the node state produced by the GAT attention step. An activation function sits between these two linear layers. If the node state after attention is $h_{v}$, the model computes the FFN output like this:
+\noindent Figure~\ref{fig:ffn_block} shows the structure of this block. It applies two linear layers to the input node state with an activation function in between. If the node state after attention is $h_{v}$, the model computes the FFN output like this:
 \begin{equation}
+\label{eq:ffn_block}
 \mathrm{FFN}(h_{v}) = W_{2}\,\sigma(W_{1}h_{v}+b_{1})+b_{2}.
 \end{equation}
-Here $W_{1}$ and $W_{2}$ are the weight matrices for Linear 1 and Linear 2. Linear 1 expands the feature dimension. It projects the input state from dimension $d_{\mathrm{model}}$ to a larger dimension $d_{\mathrm{ff}}$. Often, $d_{\mathrm{ff}}$ is four times larger than $d_{\mathrm{model}}$. After the nonlinear activation function $\sigma$, Linear 2 compresses the features. It projects the state from $d_{\mathrm{ff}}$ back to the original dimension $d_{\mathrm{model}}$. The terms $b_{1}$ and $b_{2}$ are the bias vectors. The same parameters are shared across all nodes. But the transformation is applied to each node independently. In summary, the GAT attention layer mixes information across neighbouring nodes, and the position wise FFN then refines each node representation further.
+Here $W_{1}$ and $W_{2}$ are the weight matrices and $b_{1}, b_{2}$ are the bias vectors. The first linear layer expands the feature dimension from $d_{\mathrm{model}}$ to a larger dimension $d_{\mathrm{ff}}$, and the second projects it back to $d_{\mathrm{model}}$. In the schematic figure, $N_{\mathrm{in}}$ corresponds to $d_{\mathrm{model}}$ and $N_{\mathrm{out}}$ corresponds to $d_{\mathrm{ff}}$. The same parameters are shared across all nodes, and the same block is used for each node.
 
-\noindent GAT can also be more useful when the graph is noisy or incomplete. In many real datasets, some edges are weak, indirect, or uncertain. A fixed aggregation rule treats all neighbours in a similar way after normalization. Attention can reduce the influence of less informative neighbours. It can also give more weight to neighbours that appear more relevant for the current prediction. This does not remove graph noise, but it can make the model more robust to it.
+\subsubsection{GAT attention block}
+\noindent In the original GAT definition, the core operation is the attention based neighborhood aggregation described above~\cite{velickovic2018graph}. In many later attention based models, the attention layer is followed by the small two layer block described above, with residual connections and layer normalization around these sublayers~\cite{vaswani2017attention,he2016residual,ba2016layernorm}. This design became widely known through the Transformer architecture~\cite{vaswani2017attention} and was later adopted in graph Transformer style models such as Graphormer and GraphGPS~\cite{ying2021graphormer,rampasek2022graphgps}.
+
+\noindent Each part in this block has a different role. Attention mixes information across neighboring nodes, the FFN further transforms each node representation, residual connections preserve useful earlier information, and layer normalization helps keep training stable~\cite{vaswani2017attention,he2016residual,ba2016layernorm}. This design was later adopted in graph Transformer style models such as Graphormer and GraphGPS~\cite{ying2021graphormer,rampasek2022graphgps}.
+\subsubsection{Advantage}
+\noindent GAT can be more useful when the graph is noisy or incomplete. In many real datasets, some edges are weak, indirect, or uncertain. A fixed aggregation rule treats all neighbours in a similar way after normalization. Attention can reduce the influence of less informative neighbours and give more weight to neighbours that appear more relevant for the current prediction. This does not remove graph noise, but it can make the model more robust to it.
+
+\subsection{Uncertainty estimation}
+
+\noindent Predictions should not always be interpreted as equally reliable. Uncertainty estimation is used to represent this difference. Instead of giving only one predicted value, the model can also describe how certain or uncertain that prediction is. In this thesis, the uncertainty mainly refers to input dependent noise in the prediction target rather than uncertainty in the model parameters.
+
+\subsubsection{Gaussian assumption}
+\noindent A regression target does not need to be treated as one fixed value only. It can also be modeled as a random variable with a conditional probability distribution. In probabilistic regression, a common assumption for a continuous target is a Gaussian likelihood whose mean and variance depend on the input~\cite{bishop2006pattern,kendall2017uncertainties}. In this thesis, the conditional target distribution is written as
+\begin{equation}
+\label{eq:gaussian_assumption}
+y \mid x \sim \mathcal{N}\!\left(\mu(x),\sigma^{2}(x)\right).
+\end{equation}
+Here $\mu(x)$ is the input dependent mean and $\sigma^{2}(x)$ is the input dependent variance. A small variance means that the target is expected to stay close to the mean, while a large variance means that the prediction is treated as less certain.
+
+\noindent This thesis does not strictly prove that the conditional target distribution is Gaussian. The Gaussian likelihood is used as a practical modeling assumption for probabilistic regression. Its reasonableness is instead assessed empirically through test negative log likelihood, residual diagnostics, and coverage analysis of the prediction bands.
+
+\subsubsection{Predicting mean and variance}
+\noindent Under this view, the model predicts two values instead of one. The first is the mean prediction $\mu$, and the second is a variance related term. In practice, models often predict $\log \sigma^{2}$ instead of $\sigma^{2}$ directly, because this is easier to train, more stable, and still defines a positive variance after exponential operation~\cite{kendall2017uncertainties}.
+
+\subsubsection{Negative log likelihood}
+\noindent If the target is modeled with a Gaussian distribution, a natural training objective is the negative log likelihood (NLL). its general form is
+\begin{equation}
+\label{eq:gaussian_nll}
+\mathcal{L}_{\mathrm{NLL}}=\frac{1}{2}\left[\log \sigma^{2}+\frac{(y-\mu)^{2}}{\sigma^{2}}\right].
+\end{equation}
+The squared error term encourages the mean prediction to stay close to the target. The $\log \sigma^{2}$ term penalizes unnecessarily large uncertainty. Together, these two terms prevent the model from assigning high variance everywhere while still allowing uncertain predictions when needed.
+
+\subsubsection{Summary}
+\noindent Uncertainty estimation is useful when some targets are easier to predict than others. In biological data, some responses are clearer and more consistent, while others are noisier or more context dependent. Predicting both a mean and an uncertainty lets the model represent different confidence levels across genes or samples instead of treating all predictions as equally certain.

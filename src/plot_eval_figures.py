@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import json
 import os
 from dataclasses import dataclass
@@ -18,6 +19,13 @@ def _valid_gene_indices(loss_mask):
     if m.ndim == 2:
         m = m[0]
     return np.where(m > 0)[0]
+
+
+def _split_mean_logvar(pred):
+    pred = np.asarray(pred)
+    if pred.ndim == 3 and pred.shape[-1] == 2:
+        return pred[..., 0], pred[..., 1]
+    return pred, None
 
 
 def _samplewise_pcc(y_true, y_pred, valid_idx):
@@ -187,6 +195,9 @@ class ExportArgs:
     eval_sanity_seed: int
     eval_sanity_max_eval: int
     test_ids_npy: str
+    model_kind: str = "baseline"
+    predict_uncertainty: bool = False
+    cell_dropout_rate: float = 0.2
     export_attention: bool = False
     attention_max_samples: int = 2000
     attention_batch_size: int = 64
@@ -197,7 +208,10 @@ class ExportArgs:
 
 def export_predictions(args: ExportArgs):
     from data_loader import load_rfa_data, build_combined_gnn
-    from base_gnn import BaseLineGAT
+    if str(getattr(args, "model_kind", "baseline")).strip().lower() == "hybrid_context":
+        from base_gnn_hybrid_context import BaseLineGATHybridContext as ModelClass
+    else:
+        from base_gnn import BaseLineGAT as ModelClass
 
     root = args.root
     if not os.path.exists(root):
@@ -336,7 +350,7 @@ def export_predictions(args: ExportArgs):
     else:
         fp_dim = 0
 
-    model = BaseLineGAT(
+    model_kwargs = dict(
         num_genes=int(adj_matrix.shape[0]),
         num_cells=num_cells,
         fingerprint_dim=int(fp_dim),
@@ -350,6 +364,12 @@ def export_predictions(args: ExportArgs):
         use_sparse_adj=bool(args.sparse_gat),
         use_cell_embedding=not bool(args.no_cell_embedding),
     )
+    model_sig = inspect.signature(ModelClass.__init__)
+    if "predict_uncertainty" in model_sig.parameters:
+        model_kwargs["predict_uncertainty"] = bool(getattr(args, "predict_uncertainty", False))
+    if "cell_dropout_rate" in model_sig.parameters:
+        model_kwargs["cell_dropout_rate"] = float(getattr(args, "cell_dropout_rate", 0.2))
+    model = ModelClass(**model_kwargs)
 
     if bool(args.sparse_gat):
         edge_index_np = edge_index.astype(np.int64)
@@ -442,15 +462,16 @@ def export_predictions(args: ExportArgs):
         y_pred_test = wrapped.predict([test_ctl, test_drug, test_cell_idx, test_fp], batch_size=256, verbose=0)
     else:
         y_pred_test = wrapped.predict([test_ctl, test_drug, test_cell_idx], batch_size=256, verbose=0)
+    y_pred_mean, y_pred_logvar = _split_mean_logvar(y_pred_test)
 
     y_true_test = test_trt
 
     if residualize_target and cell_delta_mean is not None:
         y_true_test_full = test_trt_full
-        y_pred_test_full = y_pred_test + cell_delta_mean[test_cells]
+        y_pred_test_full = y_pred_mean + cell_delta_mean[test_cells]
     else:
         y_true_test_full = y_true_test
-        y_pred_test_full = y_pred_test
+        y_pred_test_full = y_pred_mean
 
     valid_idx = _valid_gene_indices(data["loss_mask"])
     sample_pcc = _samplewise_pcc(y_true_test_full, y_pred_test_full, valid_idx)
@@ -495,6 +516,9 @@ def export_predictions(args: ExportArgs):
         "use_landmark_genes": bool(args.use_landmark_genes),
         "use_drug_fp_embedding": bool(args.use_drug_fp_embedding),
         "sparse_gat": bool(args.sparse_gat),
+        "model_kind": str(getattr(args, "model_kind", "baseline")),
+        "predict_uncertainty": bool(getattr(args, "predict_uncertainty", False)),
+        "cell_dropout_rate": float(getattr(args, "cell_dropout_rate", 0.2)),
         "weights": str(args.weights),
         "num_test": int(len(test_ctl)),
         "test_ids_npy": str(args.test_ids_npy).strip(),
@@ -571,9 +595,6 @@ def export_predictions(args: ExportArgs):
             else:
                 out, attns = model([edge_index_tf, edge_weight_tf, b_ctl, b_drug, b_cell], training=False, output_attention=True)
 
-            if residualize_target and cell_delta_mean is not None:
-                _ = out + tf.constant(cell_delta_mean[att_cells_for_mean[start:end]], dtype=tf.float32)
-
             att_np = []
             for li, a in enumerate(attns):
                 a = tf.reduce_mean(a, axis=1)
@@ -626,6 +647,7 @@ def export_predictions(args: ExportArgs):
         args.out,
         y_true=y_true_test_full.astype(np.float32),
         y_pred=y_pred_test_full.astype(np.float32),
+        y_logvar=(np.zeros((0,), dtype=np.float32) if y_pred_logvar is None else np.asarray(y_pred_logvar, dtype=np.float32)),
         sample_pcc=sample_pcc,
         sample_mse=sample_mse,
         cell_names=test_cell_names.astype(object),
@@ -1053,6 +1075,9 @@ def build_cli():
     e.add_argument("--eval_sanity_seed", type=int, default=0)
     e.add_argument("--eval_sanity_max_eval", type=int, default=20000)
     e.add_argument("--test_ids_npy", default="")
+    e.add_argument("--model_kind", choices=["baseline", "hybrid_context"], default="baseline")
+    e.add_argument("--predict_uncertainty", action="store_true", default=False)
+    e.add_argument("--cell_dropout_rate", type=float, default=0.2)
     e.add_argument("--export_attention", action="store_true", default=False)
     e.add_argument("--attention_max_samples", type=int, default=2000)
     e.add_argument("--attention_batch_size", type=int, default=64)
@@ -1098,6 +1123,9 @@ def main():
                 eval_sanity_seed=int(args.eval_sanity_seed),
                 eval_sanity_max_eval=int(args.eval_sanity_max_eval),
                 test_ids_npy=str(args.test_ids_npy),
+                model_kind=str(args.model_kind),
+                predict_uncertainty=bool(args.predict_uncertainty),
+                cell_dropout_rate=float(args.cell_dropout_rate),
                 export_attention=bool(args.export_attention),
                 attention_max_samples=int(args.attention_max_samples),
                 attention_batch_size=int(args.attention_batch_size),

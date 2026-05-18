@@ -6,9 +6,10 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from scipy.stats import pearsonr
-from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 import json
+from train_common import samplewise_masked_metrics, save_npz
+from train_tf_common import GenericPCCCallback, GraphModelWrapper, collect_gat_scale_stats
 
 
 def eval_pcc_mse(
@@ -57,40 +58,29 @@ def eval_pcc_mse(
             p, _ = pearsonr(yt, yp)
             pcc_list.append(p)
     avg_pcc = float(np.mean(pcc_list)) if pcc_list else 0.0
-    mse = float(mean_squared_error(y_true_valid, pred_valid))
+    mse = float(np.mean((y_true_valid - pred_valid) ** 2))
     return {"mse": mse, "pcc": avg_pcc}
 
-def _save_npz(path, **kwargs):
-    payload = {}
-    for k, v in kwargs.items():
-        if isinstance(v, (dict, list)):
-            try:
-                payload[k] = np.asarray([json.dumps(v)], dtype=object)
-            except TypeError:
-                payload[k] = np.asarray([v], dtype=object)
-        else:
-            payload[k] = v
-    out_dir = os.path.dirname(str(path))
-    if out_dir != "":
-        os.makedirs(out_dir, exist_ok=True)
-    np.savez_compressed(path, **payload)
 
-
-def _samplewise_metrics(y_true, y_pred, loss_mask):
-    valid_indices = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    yt = y_true[:, valid_indices]
-    yp = y_pred[:, valid_indices]
-    pcc = np.zeros((len(yt),), dtype=np.float32)
-    mse = np.zeros((len(yt),), dtype=np.float32)
-    for i in range(len(yt)):
-        a = yt[i]
-        b = yp[i]
-        mse[i] = float(np.mean((a - b) ** 2))
-        if np.std(a) > 1e-6 and np.std(b) > 1e-6:
-            pcc[i] = float(pearsonr(a, b)[0])
-        else:
-            pcc[i] = 0.0
-    return pcc, mse
+def _eval_gat_pack(model, data_pack, batch_size, max_eval, loss_mask, cell_mean=None, y_is_residual=False):
+    if len(data_pack) == 4:
+        ctl, drug, cells, y_true = data_pack
+        drug_fp = None
+    else:
+        ctl, drug, cells, drug_fp, y_true = data_pack
+    return eval_pcc_mse(
+        model,
+        ctl,
+        drug,
+        cells,
+        y_true,
+        loss_mask,
+        batch_size=batch_size,
+        max_eval=max_eval,
+        drug_fp=drug_fp,
+        cell_mean=cell_mean,
+        y_is_residual=y_is_residual,
+    )
 
 
 def _parse_csv_list(s):
@@ -319,102 +309,6 @@ class CounterfactualTrainer(keras.Model):
         return {m.name: m.result() for m in self.metrics}
 
 
-class PCCCallback(keras.callbacks.Callback):
-    def __init__(self, loss_mask, train_data, val_data, batch_size=32, max_eval=2048, cell_mean=None, y_is_residual=False):
-        super().__init__()
-        self.loss_mask = loss_mask
-        self.train_data = train_data
-        self.val_data = val_data
-        self.batch_size = int(batch_size)
-        self.max_eval = int(max_eval) if max_eval is not None else None
-        self.cell_mean = cell_mean
-        self.y_is_residual = bool(y_is_residual)
-
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        if len(self.train_data) == 4:
-            ctl_tr, drug_tr, cell_tr, y_tr = self.train_data
-            ctl_va, drug_va, cell_va, y_va = self.val_data
-            tr = eval_pcc_mse(
-                self.model,
-                ctl_tr,
-                drug_tr,
-                cell_tr,
-                y_tr,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            va = eval_pcc_mse(
-                self.model,
-                ctl_va,
-                drug_va,
-                cell_va,
-                y_va,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            target_scale = None
-        else:
-            ctl_tr, drug_tr, cell_tr, fp_tr, y_tr = self.train_data
-            ctl_va, drug_va, cell_va, fp_va, y_va = self.val_data
-            tr = eval_pcc_mse(
-                self.model,
-                ctl_tr,
-                drug_tr,
-                cell_tr,
-                y_tr,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                drug_fp=fp_tr,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            va = eval_pcc_mse(
-                self.model,
-                ctl_va,
-                drug_va,
-                cell_va,
-                y_va,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                drug_fp=fp_va,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            target_scale = None
-            try:
-                inner = getattr(getattr(self.model, "core", None), "gat", None)
-                if inner is not None and hasattr(inner, "target_scale_logit"):
-                    target_scale = float(tf.nn.softplus(inner.target_scale_logit).numpy())
-            except Exception:
-                target_scale = None
-
-        logs["pcc"] = tr["pcc"]
-        logs["val_pcc"] = va["pcc"]
-        extra = []
-        for k in ["loss_full", "loss_cf", "cf_gap", "loss_hinge", "loss_aux"]:
-            v = logs.get(k)
-            if v is not None:
-                try:
-                    extra.append(f"{k}={float(v):.4f}")
-                except Exception:
-                    pass
-        if target_scale is not None:
-            extra.append(f"target_scale={target_scale:.4f}")
-        if len(extra) == 0:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f}")
-        else:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} val_pcc={va['pcc']:.4f} " + " ".join(extra))
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default="/Users/liuxi/Desktop/RFA_GNN")
@@ -478,45 +372,6 @@ def main():
 
     from base_gnn import BaseLineGAT
     from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, build_scheme_a_split_data
-
-    class GATWrapperCF(keras.Model):
-        def __init__(self, gat_model, adj_matrix, use_drug_fp_embedding=False, fp_table=None):
-            super().__init__()
-            self.gat = gat_model
-            self.adj = tf.constant(adj_matrix, dtype=tf.float32)
-            self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
-            self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
-
-        def call(self, inputs, return_embeddings=False, training=False):
-            if self.use_drug_fp_embedding:
-                ctl, drug_targets, cell_idx, drug_fp = inputs
-                cell_idx = tf.cast(cell_idx, tf.int32)
-                if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
-                    drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-                return self.gat([self.adj, ctl, drug_targets, cell_idx, drug_fp], return_embeddings=return_embeddings)
-            ctl, drug_targets, cell_idx = inputs
-            cell_idx = tf.cast(cell_idx, tf.int32)
-            return self.gat([self.adj, ctl, drug_targets, cell_idx], return_embeddings=return_embeddings)
-
-    class GATWrapperSparseCF(keras.Model):
-        def __init__(self, gat_model, edge_index, edge_weight, use_drug_fp_embedding=False, fp_table=None):
-            super().__init__()
-            self.gat = gat_model
-            self.edge_index = tf.constant(edge_index, dtype=tf.int32)
-            self.edge_weight = tf.constant(edge_weight, dtype=tf.float32)
-            self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
-            self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
-
-        def call(self, inputs, return_embeddings=False, training=False):
-            if self.use_drug_fp_embedding:
-                ctl, drug_targets, cell_idx, drug_fp = inputs
-                cell_idx = tf.cast(cell_idx, tf.int32)
-                if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
-                    drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-                return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx, drug_fp], return_embeddings=return_embeddings)
-            ctl, drug_targets, cell_idx = inputs
-            cell_idx = tf.cast(cell_idx, tf.int32)
-            return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx], return_embeddings=return_embeddings)
 
     tf_path = os.path.join(root, "data/omnipath/omnipath_tf_regulons.csv")
     ppi_path = os.path.join(root, "data/omnipath/omnipath_interactions.csv")
@@ -658,10 +513,24 @@ def main():
         self_idx = np.arange(n, dtype=np.int64)
         edge_index_full = np.concatenate([edge_index_np, np.stack([self_idx, self_idx], axis=0)], axis=1)
         edge_weight_full = np.concatenate([edge_weight, np.ones((n,), dtype=np.float32)], axis=0)
-        core = GATWrapperSparseCF(model, edge_index_full, edge_weight_full, use_drug_fp_embedding=bool(args.use_drug_fp_embedding), fp_table=fp_table)
+        core = GraphModelWrapper(
+            model,
+            graph_inputs=[edge_index_full, edge_weight_full],
+            graph_input_dtypes=[tf.int32, tf.float32],
+            use_drug_fp_embedding=bool(args.use_drug_fp_embedding),
+            fp_table=fp_table,
+            pass_training=False,
+        )
         adj_matrix = None
     else:
-        core = GATWrapperCF(model, adj_matrix, use_drug_fp_embedding=bool(args.use_drug_fp_embedding), fp_table=fp_table)
+        core = GraphModelWrapper(
+            model,
+            graph_inputs=[adj_matrix],
+            graph_input_dtypes=[tf.float32],
+            use_drug_fp_embedding=bool(args.use_drug_fp_embedding),
+            fp_table=fp_table,
+            pass_training=False,
+        )
 
     trainer = CounterfactualTrainer(
         core_model=core,
@@ -678,26 +547,42 @@ def main():
     trainer.compile(optimizer=keras.optimizers.Adam(learning_rate=5e-4), run_eagerly=bool(args.run_eagerly))
 
     if args.use_drug_fp_embedding:
-        pcc_cb = PCCCallback(
-            loss_mask=data["loss_mask"],
+        pcc_cb = GenericPCCCallback(
             train_data=(train_ctl, train_drug, train_cells, train_fp, train_trt),
             val_data=(test_ctl, test_drug, test_cells, test_fp, test_trt),
+            evaluate_pack_fn=lambda model_, pack, batch_size, max_eval: _eval_gat_pack(
+                model_,
+                pack,
+                batch_size=batch_size,
+                max_eval=max_eval,
+                loss_mask=data["loss_mask"],
+                cell_mean=cell_delta_mean,
+                y_is_residual=residualize_target,
+            ),
             batch_size=int(args.batch_size),
             max_eval=int(args.eval_sanity_max_eval),
-            cell_mean=cell_delta_mean,
-            y_is_residual=residualize_target,
+            extra_log_keys=["loss_full", "loss_cf", "cf_gap", "loss_hinge", "loss_aux"],
+            scale_stats_fn=collect_gat_scale_stats,
         )
         train_x = [train_ctl, train_drug, train_cells, train_fp]
         test_x = [test_ctl, test_drug, test_cells, test_fp]
     else:
-        pcc_cb = PCCCallback(
-            loss_mask=data["loss_mask"],
+        pcc_cb = GenericPCCCallback(
             train_data=(train_ctl, train_drug, train_cells, train_trt),
             val_data=(test_ctl, test_drug, test_cells, test_trt),
+            evaluate_pack_fn=lambda model_, pack, batch_size, max_eval: _eval_gat_pack(
+                model_,
+                pack,
+                batch_size=batch_size,
+                max_eval=max_eval,
+                loss_mask=data["loss_mask"],
+                cell_mean=cell_delta_mean,
+                y_is_residual=residualize_target,
+            ),
             batch_size=int(args.batch_size),
             max_eval=int(args.eval_sanity_max_eval),
-            cell_mean=cell_delta_mean,
-            y_is_residual=residualize_target,
+            extra_log_keys=["loss_full", "loss_cf", "cf_gap", "loss_hinge", "loss_aux"],
+            scale_stats_fn=collect_gat_scale_stats,
         )
         train_x = [train_ctl, train_drug, train_cells]
         test_x = [test_ctl, test_drug, test_cells]
@@ -860,7 +745,7 @@ def main():
             y_true_test = y_true_test + cm
             y_pred_test = y_pred_test + cm
 
-        sample_pcc, sample_mse = _samplewise_metrics(y_true_test, y_pred_test, data["loss_mask"])
+        sample_pcc, sample_mse = samplewise_masked_metrics(y_true_test, y_pred_test, data["loss_mask"])
 
         sanity = {}
         if bool(args.eval_drug_zero):
@@ -1025,7 +910,7 @@ def main():
             "attention_group_by": str(args.attention_group_by),
         }
 
-        _save_npz(
+        save_npz(
             save_eval_npz,
             y_true=y_true_test.astype(np.float32),
             y_pred=y_pred_test.astype(np.float32),

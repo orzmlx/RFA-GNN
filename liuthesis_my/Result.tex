@@ -1,21 +1,17 @@
 % !TeX root = thesis.tex
-\chapter{Results and Discussion}
-This chapter reports the main results and further investigates the model behaviour. Specifically, it compares the predictive performance of different architectures, analyses how the scores change across different experimental settings, and interprets what the proposed model learns from the biological data.
+\chapter{Results}
+This chapter presents the main results for CAGNN and the baseline models under the warm, cold drug target, and cold cell splits. The results are organized into error, correlation, top gene precision, direction of change, ablation, uncertainty, data efficiency, and case studies.
 
 \section{Evaluation framework}
-\noindent All experiments in this chapter are conducted on the L1000 landmark setting with 978 genes. For every sample, the input consists of a matched control profile, drug related features, and cell context information. The target is defined as the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$, which is consistently used across all evaluated models.
+\noindent All experiments in this chapter use the L1000 landmark setting with 978 genes. For every sample, the prediction target is the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. All models use the matched control profile and the drug input. CAGNN also uses cell context information.
 
-\noindent The evaluation framework compares three different models. The first is a DeepCOP style baseline, which concatenates the control profile and drug features into a standard feed-forward network. The second model is GSNN \cite{evans2024gsnn}, a graph-based baseline that utilizes message passing. The third model is our proposed method, referred to as Counterfactual Attention GNN, or CAGNN, throughout this chapter.
+\noindent The evaluation compares three models, namely the DeepCOP style baseline with dense layers, GSNN \cite{evans2024gsnn} as the graph based baseline, and Counterfactual Attention GNN (CAGNN). The split settings, pairing rules, and metric definitions are introduced in the Evaluation Metrics section of the methodology chapter. The same evaluation framework is used here to compare the models.
 
-\noindent To rigorously assess model generalization, we use three distinct data split settings. The warm split tests unseen treatment and control pairs sampled from the same broad data distribution as the training set. The cold drug split holds out specific drugs from the training phase, while the cold cell split entirely removes test cell lines from training. The cold cell split is expected to be the most challenging setting, as a novel cell line not only changes the baseline expression state but can also fundamentally alter the cellular response to a familiar drug.
+\noindent Most tables and figures in this chapter show the main comparison between CAGNN and the baseline models. Later sections then switch to additional analyses. The ablation section compares cell identity and control derived cell context within CAGNN. The uncertainty section studies the uncertainty output of the same CAGNN model. The data efficiency section studies warm split training budgets only. The case study section uses selected CAGNN examples to help explain the model behavior.
 
-\noindent Beyond these standard splits, this thesis also introduces a training data budget evaluation. Rather than defining a new metric, this strategy systematically restricts the amount of available training data—capping the number of samples per cell-drug pair—while keeping the test set fixed. This approach helps to study data efficiency, clarifying how quickly each model's performance improves as more training instances become available.
-
-\noindent The overall prediction quality is summarized using two main metrics. Mean squared error measures the numerical accuracy, where a lower value indicates that the prediction is closer to the observed response in absolute terms. Meanwhile, the sample-wise Pearson correlation coefficient evaluates whether the predicted response correctly captures the shape and trend of gene expression changes. Together, these two metrics provide a comprehensive view of model performance. The mean squared error focuses on the magnitude of the error, whereas the correlation coefficient focuses on the biological pattern of the response.
-
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Summary of the evaluation protocol used in the thesis.}
+\caption[Evaluation Protocol Summary]{Summary of the evaluation protocol used in the thesis.}
 \label{tab:result_protocol}
 \begin{tabular}{p{3.0cm}p{9.2cm}}
 \hline
@@ -24,415 +20,406 @@ Component & Setting \\
 Dataset & LINCS L1000 landmark genes, 978 genes \\
 Prediction target & Differential response $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ \\
 Models & DeepCOP baseline, GSNN, CAGNN \\
-Splits & Warm, cold drug, cold cell \\
-Training data budget setting & One shot and fraction based training per cell and drug pair \\
-Main metrics & Test MSE and sample wise test PCC \\
-Matching policy & Split before match, isolated control pools for train and test \\
-Test pairing & One treatment profile matched to one control sample \\
-Top gene analysis & Pos P@20 and Neg P@20 from saved predictions \\
+Splits & Warm, cold drug target, cold cell \\
+Primary metrics & Test MSE, test PCC averaged across samples, sign accuracy, Pos P@20, and Neg P@20 \\
+Top gene analysis & Pos P@20 and Neg P@20 \\
+Additional analyses & Ablation, uncertainty, data efficiency, and case studies \\
+Attention analysis & Case study on specific drug\\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.82\linewidth]{figures/evaluation_framework.png}
-\caption{Overview of the evaluation framework used in this chapter.}
+\includegraphics[width=0.615\linewidth]{figures/evaluation_framework.png}
+\caption[Evaluation Configuration]{Simple view of the evaluation configuration used in this chapter.}
 \label{fig:evaluation_framework}
 \end{figure}
 
-\noindent Simple mean based baselines are also used as lower references. They are shown with the learned models in the metric specific figures below. In the warm setting, both mean\_cell and mean\_drug can be used. In the cold drug setting, only mean\_cell can be used because the test drugs are unseen in training. In the cold cell setting, only mean\_drug can be used because the test cell lines are unseen in training. This follows the evaluation style used in XPert. It also makes the comparison easier to read.
+\noindent Figure~\ref{fig:evaluation_framework} shows the three split settings, the main metric groups, and the overall comparison logic. The later sections follow this same layout.
 
-\section{Error metrics}
-Figure~\ref{fig:evaluation_framework} divides the evaluation into error, precision, and correlation metrics. Error metrics come first because they give the clearest view of numerical prediction quality. In this section, the main error metric is mean squared error. A lower value means that the predicted response is closer to the observed response.
 
-\noindent Table~\ref{tab:mse_results} shows the MSE results for the three splits. DeepCOP gives the lowest MSE in the warm split. GSNN gives the lowest MSE in the cold cell split. CAGNN gives the lowest MSE in the cold drug split. This pattern shows that model ranking depends on the type of generalization that is tested. It also shows that a low MSE does not always mean the best gene ranking pattern. That point becomes clearer in the later correlation results.
+\section{Error metric results}
+\noindent Error metrics measure how close the predicted values are to the observed values. The main error metric here is mean squared error (MSE), where a lower score means a better prediction. Table~\ref{tab:mse_results} and Figure~\ref{fig:benchmark_mse_results} show the same ranking in table and plot form. CAGNN gives the lowest MSE in warm and cold drug target, while DeepCOP is slightly best in cold cell. The clearest separation appears in cold drug target, whereas cold cell shows a smaller gap and a different ranking.
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Test MSE under the three evaluation splits. Lower is better.}
+\caption[Test MSE Across Splits]{Test MSE under the three evaluation splits. The best value in each split is shown in bold.}
 \label{tab:mse_results}
-\begin{tabular}{llc}
+\begin{tabular}{lccc}
 \hline
-Model & Split & Test MSE \\
+Split & DeepCOP & GSNN & CAGNN \\
 \hline
-DeepCOP & Warm & 0.8492 \\
-DeepCOP & Cold drug & 1.1508 \\
-DeepCOP & Cold cell & 0.8501 \\
-GSNN & Warm & 0.9609 \\
-GSNN & Cold drug & 1.0901 \\
-GSNN & Cold cell & 0.8466 \\
-CAGNN & Warm & 0.8522 \\
-CAGNN & Cold drug & 0.9885 \\
-CAGNN & Cold cell & 1.4326 \\
+Warm & 0.8915 & 0.9609 & \textbf{0.8182} \\
+Cold drug & 1.1769 & 1.0901 & \textbf{0.9516} \\
+Cold cell & \textbf{0.8133} & 0.8466 & 0.8384 \\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.86\linewidth]{figures/benchmark_mse_with_mean_baselines.png}
-\caption{Test MSE across the three evaluation splits for the learned models and the simple mean baselines. mean\_drug is omitted in cold drug and mean\_cell is omitted in cold cell because these baselines are not applicable in those settings.}
+\caption[MSE with Mean Baselines]{Test MSE in warm, cold drug target, and cold cell for the learned models and the simple mean baselines. mean\_drug is not shown in cold drug target and mean\_cell is not shown in cold cell because these baselines cannot be used there.}
 \label{fig:benchmark_mse_results}
 \end{figure}
 
-\noindent Summary scores hide part of the picture. It is also useful to ask where the errors appear and how wide the error spread becomes. Samples with weak responses are often hard to predict because a small numerical shift can still cause a large relative error. This issue matters even more in the cold cell split, where the baseline expression state changes across cell lines.
+\noindent Scatter plots of $y_{\mathrm{true}}$ and $y_{\mathrm{pred}}$ show this ranking more clearly. Points close to the diagonal indicate smaller errors, while a wider cloud indicates larger deviations. In Figure~\ref{fig:gene_expr_true_pred}, the CAGNN panels are tighter around the diagonal in warm and cold drug target than the baseline panels. In cold cell, the point clouds become wider for all three models and the differences become smaller. This matches Table~\ref{tab:mse_results}.
 
-\noindent Annotation quality also matters here. The current pipeline keeps only treatment profiles that have both target annotations and molecular fingerprints. Even with this filter, the target information is still incomplete. A drug can have only a few known targets and still produce a strong downstream response through unknown or indirect paths. When such cases fail, the failure should not be read only as a weakness of the graph model.
-
-\begin{table}[H]
+\begin{figure}[htbp]
 \centering
-\caption{Example of grouped error analysis. The values are placeholders.}
-\label{tab:error_groups}
-\begin{tabular}{lc}
-\hline
-Group & Test MSE \\
-\hline
-Warm split, all samples & 0.38 \\
-Cold drug, all samples & 0.48 \\
-Cold cell, all samples & 0.66 \\
-High response magnitude & 0.44 \\
-Low response magnitude & 0.59 \\
-\hline
-\end{tabular}
-\end{table}
-
-\noindent A scatter plot of $y_{\mathrm{true}}$ and $y_{\mathrm{pred}}$ is also useful in this section. The MSE table gives a summary, but the scatter plot shows more clearly how close the predictions stay to the diagonal line. It also shows whether the model tends to under predict or over predict larger responses. Figure~\ref{fig:gene_expr_true_pred} is grouped by split. This layout makes the change in error spread easier to compare across settings and across models.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.98\linewidth]{figures/gene_expr_true_pred_all_models_by_split.png}
-\caption{Gene level scatter plots for DeepCOP, GSNN, and CAGNN across the three evaluation splits. The columns show warm, cold drug, and cold cell settings. The diagonal line indicates perfect agreement.}
+\includegraphics[width=0.882\linewidth]{figures/gene_expr_true_pred_all_models_by_split.png}
+\caption[Gene Scatter Plots]{Scatter plots of predicted and true values for individual genes for DeepCOP, GSNN, and CAGNN in the three splits.}
 \label{fig:gene_expr_true_pred}
 \end{figure}
 
-\section{Precision metrics}
-The second group of metrics focuses on whether the models recover the most responsive genes. This view is important because perturbation analysis often cares more about the strongest up regulated and down regulated genes than about every small change in the full response vector. For this reason, top gene precision is treated as a separate part of the evaluation.
+\FloatBarrier
+\section{Precision metric results}
+This part examines whether the models recover the strongest changes across genes. The evaluation uses top gene precision, which emphasizes the genes with the largest positive and negative responses.
 
-\noindent This analysis can be computed directly from the saved prediction files. In this chapter, the definition follows the XPert evaluation style. For each sample, the true response vector $y_{\mathrm{true}}$ and the predicted response vector $y_{\mathrm{pred}}$ are ranked across genes. Positive precision at 20, written as Pos P@20, measures how many of the 20 most up regulated genes in $y_{\mathrm{pred}}$ fall inside the top 100 most up regulated genes in $y_{\mathrm{true}}$. Negative precision at 20, written as Neg P@20, is defined in the same way for the 20 most down regulated genes. The final value is the mean across all test samples. These metrics do not replace MSE or PCC. They add a different view of prediction quality that is closer to practical use.
+\noindent For each sample, the genes are ranked in both the true response ($y_{\mathrm{true}}$) and the predicted response ($y_{\mathrm{pred}}$). Positive precision at 20, written as Pos P@20, measures how many of the 20 most up regulated genes in $y_{\mathrm{pred}}$ also appear among the top 100 most up regulated genes in $y_{\mathrm{true}}$. Negative precision at 20, written as Neg P@20, is defined in the same way for the 20 most down regulated genes. The final score is the mean across all test samples. These metrics give another view of prediction quality that is closer to how perturbation results are often used in practice.
 
-\noindent Table~\ref{tab:top_gene_analysis} reports the top gene precision values computed from the exported prediction files with the XPert style definition. CAGNN gives the best Pos P@20 in the warm and cold drug splits. GSNN gives the best Pos P@20 in the cold cell split. For Neg P@20, CAGNN gives the best result in all three splits. Figure~\ref{fig:top_gene_placeholder} shows the same comparison in visual form for all three models.
+\noindent Table~\ref{tab:top_gene_analysis} and Figure~\ref{fig:top_gene_placeholder} show the same result in table and plot form. CAGNN has the highest Pos P@20 and Neg P@20 in every split. The advantage is clear in warm and cold drug target, and it remains visible in cold cell.
 
-\begin{table}[H]
+\begin{table}[!htbp]
 \centering
-\caption{Top gene precision results computed from the exported prediction files. Higher is better.}
+\caption[Top Gene Precision Results]{Top gene precision results computed from the exported prediction files. The best value in each split is shown in bold.}
 \label{tab:top_gene_analysis}
-\begin{tabular}{llcc}
+\begin{tabular}{lccc}
 \hline
-Model & Split & Pos P@20 & Neg P@20 \\
+Split and metric & DeepCOP & GSNN & CAGNN \\
 \hline
-DeepCOP & Warm & 0.5285 & 0.5394 \\
-DeepCOP & Cold drug & 0.3934 & 0.4194 \\
-DeepCOP & Cold cell & 0.3376 & 0.3523 \\
-GSNN & Warm & 0.5179 & 0.4827 \\
-GSNN & Cold drug & 0.5062 & 0.4855 \\
-GSNN & Cold cell & 0.4779 & 0.4388 \\
-CAGNN & Warm & 0.5954 & 0.6135 \\
-CAGNN & Cold drug & 0.5784 & 0.5808 \\
-CAGNN & Cold cell & 0.3964 & 0.4127 \\
+Warm Pos P@20 & 0.5406 & 0.5179 & \textbf{0.6180} \\
+Warm Neg P@20 & 0.5402 & 0.4827 & \textbf{0.6280} \\
+Cold drug Pos P@20 & 0.3892 & 0.5062 & \textbf{0.6035} \\
+Cold drug Neg P@20 & 0.4003 & 0.4855 & \textbf{0.5952} \\
+Cold cell Pos P@20 & 0.4062 & 0.4779 & \textbf{0.5344} \\
+Cold cell Neg P@20 & 0.4129 & 0.4388 & \textbf{0.4993} \\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=1.18\linewidth]{figures/top_gene_precision_results.png}
-\caption{Top gene precision computed from the exported prediction files with the XPert style definition. The left panel shows Pos P@20 and the right panel shows Neg P@20 for DeepCOP, GSNN, and CAGNN across the three evaluation splits.}
+\includegraphics[width=0.86\linewidth]{figures/top_gene_precision_results.png}
+\caption[Top Gene Precision Plots]{The left panel shows Pos P@20 and the right panel shows Neg P@20 for DeepCOP, GSNN, and CAGNN in the three splits.}
 \label{fig:top_gene_placeholder}
 \end{figure}
 
-\section{Correlation metrics}
-The third group of metrics focuses on correlation. In this chapter, the main correlation metric is sample wise Pearson correlation coefficient. PCC measures whether the predicted response follows the correct gene level pattern within each sample. A higher value means better agreement in the shape of the response profile, even when the absolute size is not matched exactly.
+\section{Correlation metric results}
+The Pearson correlation coefficient (PCC) measures whether the predicted response follows the same overall pattern across genes as the true response. A higher score means better agreement in shape for each sample.
 
-\noindent Table~\ref{tab:pcc_results} shows the PCC results for the three splits. CAGNN gives the best PCC in the warm and cold drug settings. GSNN gives the best PCC in the cold cell setting and is the most stable model across the three splits. DeepCOP stays competitive in MSE in some settings, but its PCC drops more in the harder splits. This contrast between MSE and PCC is useful. A model can keep part of the gene ranking pattern while still making larger errors in absolute size.
+\noindent Table~\ref{tab:pcc_results} and Figure~\ref{fig:benchmark_pcc_results} show the same PCC results in table and plot form. CAGNN is highest in all three splits. The strongest baseline changes by split. DeepCOP is slightly stronger than GSNN in warm, while GSNN is clearly stronger in cold drug target and cold cell. Another clear result is that PCC decreases for all methods from warm to cold cell. In Figure~\ref{fig:benchmark_pcc_results}, the CAGNN bar is highest in each split and the cold cell bars are lower overall.
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Test PCC under the three evaluation splits. Higher is better.}
+\caption[Test PCC Across Splits]{Test PCC under the three evaluation splits. The best value in each split is shown in bold.}
 \label{tab:pcc_results}
-\begin{tabular}{llc}
+\begin{tabular}{lccc}
 \hline
-Model & Split & Test PCC \\
+Split & DeepCOP & GSNN & CAGNN \\
 \hline
-DeepCOP & Warm & 0.4640 \\
-DeepCOP & Cold drug & 0.3283 \\
-DeepCOP & Cold cell & 0.2911 \\
-GSNN & Warm & 0.4609 \\
-GSNN & Cold drug & 0.4556 \\
-GSNN & Cold cell & 0.4237 \\
-CAGNN & Warm & 0.5390 \\
-CAGNN & Cold drug & 0.5178 \\
-CAGNN & Cold cell & 0.3924 \\
+Warm & 0.4671 & 0.4609 & \textbf{0.5605} \\
+Cold drug & 0.3104 & 0.4556 & \textbf{0.5424} \\
+Cold cell & 0.3457 & 0.4237 & \textbf{0.4783} \\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.86\linewidth]{figures/benchmark_pcc_with_mean_baselines.png}
-\caption{Test PCC across the three evaluation splits for the learned models and the simple mean baselines. mean\_drug is omitted in cold drug and mean\_cell is omitted in cold cell because these baselines are not applicable in those settings.}
+\caption[PCC with Mean Baselines]{Test PCC in warm, cold drug target, and cold cell for the learned models and the simple mean baselines. mean\_drug is not shown in cold drug target and mean\_cell is not shown in cold cell because these baselines cannot be used there.}
 \label{fig:benchmark_pcc_results}
 \end{figure}
 
-\subsection{Regulation sign agreement}
-\noindent A second metric can also be used to check gene level direction agreement. This metric asks whether the model predicts the sign of regulation correctly for each gene. For a given sample, the predicted response and the true response are compared gene by gene. A match means that both values are positive or both values are negative. In this calculation, no extra threshold is used.
+\subsection{Regulation sign results}
+\noindent This metric is used to examine agreement in the direction of change for each gene. The definition of regulation sign accuracy is introduced in the section Evaluation Metrics. Here, the focus is on how the models compare under that metric. The score does not use the response size. It only checks whether the predicted direction of change is correct.
 
-\noindent For one sample with $G$ genes, the regulation sign accuracy is defined as
-\[
-\mathrm{Acc}_{\mathrm{sign}}=\frac{1}{G}\sum_{i=1}^{G}\mathbf{1}\left[\mathrm{sign}\!\left(\Delta^{\mathrm{pred}}_i\right)=\mathrm{sign}\!\left(\Delta^{\mathrm{true}}_i\right)\right].
-\]
-The final test score is the mean of this value across all test samples. This metric does not use the size of the response. It only checks whether the direction of change is correct.
+\noindent Table~\ref{tab:sign_accuracy_results} shows the sign agreement results under the three splits. The winner changes with the split. DeepCOP is highest in warm, CAGNN is highest in cold drug target, and GSNN is highest in cold cell. This means the sign metric gives a more mixed ranking than PCC. It also shows that predicting only the direction of change is not exactly the same as predicting the full response shape.
 
-\noindent Table~\ref{tab:sign_accuracy_results} shows the sign agreement results under the three splits. DeepCOP gives the highest sign accuracy in the warm split. CAGNN gives the highest sign accuracy in the cold drug split. GSNN gives the highest sign accuracy in the cold cell split. These results are consistent with the broader pattern seen in PCC. The cold cell setting is again the hardest setting for all models.
-
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Regulation sign accuracy under the three evaluation splits. Higher is better.}
+\caption[Sign Accuracy Across Splits]{Regulation sign accuracy under the three evaluation splits. The best value in each split is shown in bold.}
 \label{tab:sign_accuracy_results}
-\begin{tabular}{llc}
+\begin{tabular}{lccc}
 \hline
-Model & Split & Sign accuracy \\
+Split & DeepCOP & GSNN & CAGNN \\
 \hline
-DeepCOP & Warm & 0.6567 \\
-DeepCOP & Cold drug & 0.5995 \\
-DeepCOP & Cold cell & 0.5725 \\
-GSNN & Warm & 0.6086 \\
-GSNN & Cold drug & 0.6038 \\
-GSNN & Cold cell & 0.6084 \\
-CAGNN & Warm & 0.6496 \\
-CAGNN & Cold drug & 0.6415 \\
-CAGNN & Cold cell & 0.5801 \\
+Warm & \textbf{0.6582} & 0.6086 & 0.6496 \\
+Cold drug & 0.5942 & 0.6038 & \textbf{0.6415} \\
+Cold cell & 0.5859 & \textbf{0.6084} & 0.5801 \\
 \hline
 \end{tabular}
 \end{table}
 
-\noindent The PCC results also help explain generalization under distribution shift. The harder blind tests are more useful than the warm split because they show whether the model learns broader response rules or mainly fits a familiar data setting. In Table~\ref{tab:pcc_results}, the cold cell setting is the clearest bottleneck. All models lose PCC there. This pattern makes sense because a new cell line changes the baseline state and can also change how the same drug acts in context.
+\noindent Across the three splits, the lowest PCC values appear in cold cell for all models. The ranking by PCC is also more stable than the ranking by sign accuracy, since CAGNN remains highest in all three splits. The margin is largest in warm and cold drug target and smaller in cold cell.
 
-\noindent The current results give a mixed picture. CAGNN generalizes best to unseen drugs in terms of PCC. GSNN is stronger on unseen cell lines. This suggests that graph structure is useful, but the current attention based design is not yet the best option for the cold cell setting. The remaining gap in cold cell performance points to the need for better cell state modelling and better handling of context specific regulation.
+\subsection{Gene distribution analysis}
+\noindent Figure~\ref{fig:xpert_style_gene_distribution} gives a view of model output across selected genes. The figure has three rows, one for each split, and each row shows the distribution of $x_{\mathrm{deg}}$ for twelve genes with strong true response.
 
-\begin{table}[H]
-\centering
-\caption{Relative PCC drop from the warm split.}
-\label{tab:generalization_drop}
-\begin{tabular}{lcc}
-\hline
-Model & PCC drop in cold drug & PCC drop in cold cell \\
-\hline
-DeepCOP & 0.1357 & 0.1729 \\
-GSNN & 0.0053 & 0.0372 \\
-CAGNN & 0.0212 & 0.1466 \\
-\hline
-\end{tabular}
-\end{table}
+\noindent The result is consistent with the summary metrics. In warm and cold drug target, the CAGNN distributions are usually closest to the ground truth distributions across the selected genes. In cold cell, the agreement becomes weaker for all models, but CAGNN still tracks the ground truth more closely than the two baselines in most shown genes.
 
-\subsection{Gene level distribution analysis}
-\noindent Figure~\ref{fig:xpert_style_gene_distribution} gives a more direct gene level view of model behaviour. For each split, the figure shows the distribution of $x_{\mathrm{deg}}$ for ten representative response genes. Here, $x_{\mathrm{deg}}$ is the differential response defined as treatment minus control. The genes are selected by the mean absolute true response in the test set, so they represent genes with strong observed changes in each split.
-
-\noindent The cold drug panel shows a relatively good match between CAGNN and the ground truth for several genes. The median values are often close, and the spread is also reasonably similar for part of the panel. This pattern is consistent with the earlier PCC results, where CAGNN gives the strongest performance in the cold drug setting. The model appears to transfer drug related information better than cell related information.
-
-\noindent The cold cell panel shows a weaker result. For several genes, the CAGNN boxes shift away from the ground truth or show a noticeably different spread. In some cases, the predicted distribution is too narrow, and in other cases the central tendency is misplaced. GSNN is often closer to the ground truth in this setting. This agrees with the earlier quantitative results. The cold cell setting remains the main weakness of the current CAGNN design.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.98\linewidth]{figures/xpert_style_gene_distribution.png}
-\caption{Gene level distribution comparison in the cold cell and cold drug settings. For each split, the figure shows the differential response $x_{\mathrm{deg}}$ for ten representative response genes selected by the mean absolute true response in the test set. Ground truth, DeepCOP, GSNN, and CAGNN are shown side by side for each gene.}
+\caption[Gene Distribution by Split]{Distribution across selected genes in the three splits. The figure has three rows, one for each split. Each row shows $x_{\mathrm{deg}}$ for twelve genes with strong true response. Ground truth, DeepCOP, GSNN, and CAGNN are shown for each gene.}
 \label{fig:xpert_style_gene_distribution}
 \end{figure}
 
 \subsection{Ablation analysis}
-\noindent Correlation based results are also useful for ablation analysis because they show whether each component helps preserve the response pattern across genes. The comparison below focuses on how cell information is introduced into the graph model. Three variants are considered. The first variant uses only a cell identity embedding. The second replaces cell identity with a cell context derived from the control profile. The third keeps the same cell context and also injects it into the attention score as an extra context dependent term.
+\noindent This ablation study is separate from the main benchmark comparison. It compares two ways of providing cell information to the proposed model. One variant uses only a Cell ID input. The other uses a control based cell context derived from the matched control profile.
 
-\noindent Table~\ref{tab:context_ablation} shows the corresponding test results. Replacing cell identity with a cell context gives a small PCC gain in the warm and cold drug settings, but the gain is much larger in the cold cell setting. This pattern suggests that a sample specific cell context is more useful than a fixed cell label when the model must generalize to unseen cell lines. Adding context aware attention on top of the cell context gives another improvement in the warm and cold drug settings. In the cold cell setting, the PCC gain is very small, but it stays positive. The MSE pattern is mixed. It improves slightly in warm and cold drug, while cold cell becomes slightly worse than the cell context only variant. This suggests that context aware attention mainly helps preserve the response pattern rather than uniformly reducing absolute error.
+\noindent Table~\ref{tab:context_ablation} shows the results. In the table, ``Cell ID'' means that the model receives only the cell line identity, while ``Control-context'' means that it receives a context vector derived from the matched control profile. Here $\Delta$ means control-context minus Cell ID, so a negative $\Delta$MSE and a positive $\Delta$PCC both indicate improvement. The control-context variant improves both metrics in all three splits. The changes are modest in warm and cold drug target, but much larger in cold cell. The benefit of control-context appears in every split and is strongest when the test cell line is unseen.
 
-\noindent These results also clarify the different roles of context in the model. When context is added to the node features, it changes what each node representation is. It changes the sample specific state carried by each gene node before message passing starts. When context is added again inside attention, it changes how strongly nodes exchange information with their neighbors. The first affects node content. The second affects message passing. The gains in Table~\ref{tab:context_ablation} suggest that both roles are useful, but the larger benefit comes from replacing fixed cell identity with a cell context derived from the control profile.
-
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Comparison of cell information variants in CAGNN. The table reports test MSE and test PCC for three ways of using cell related information.}
+\caption[Cell ID vs Control Context]{Comparison of cell information variants in CAGNN. ``Cell ID'' uses only the cell line identity as input, while ``Control-context'' uses a context vector derived from the matched control profile. The table reports test MSE and test PCC for both variants, together with their differences. Here $\Delta$ means control-context minus Cell ID, so negative $\Delta$MSE and positive $\Delta$PCC indicate improvement.}
 \label{tab:context_ablation}
-\begin{tabular}{llcc}
+\begin{tabular}{lcccccc}
 \hline
-Variant & Split & Test MSE & Test PCC \\
+Split & Cell ID MSE & Cell ID PCC & Cell-context MSE & Cell-context PCC & $\Delta$MSE & $\Delta$PCC \\
 \hline
-Cell identity only & Warm & 0.8567 & 0.5364 \\
-Cell identity only & Cold drug & 0.9891 & 0.5174 \\
-Cell identity only & Cold cell & 1.6983 & 0.3709 \\
-Cell Context only & Warm & 0.8571 & 0.5400 \\
-Cell Context only & Cold drug & 0.9866 & 0.5239 \\
-Cell Context only & Cold cell & 0.7943 & 0.4830 \\
-Cell Context + context attention & Warm & 0.8539 & 0.5457 \\
-Cell Context + context attention & Cold drug & 0.9771 & 0.5312 \\
-Cell Context + context attention & Cold cell & 0.8113 & 0.4834 \\
+Warm & 0.8567 & 0.5364 & 0.8218 & 0.5601 & -0.0349 & +0.0237 \\
+Cold drug & 0.9891 & 0.5174 & 0.9542 & 0.5401 & -0.0349 & +0.0227 \\
+Cold cell & 1.6983 & 0.3709 & 0.8393 & 0.4778 & -0.8590 & +0.1069 \\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{figure}[H]
-\centering
-\begin{minipage}[t]{0.32\linewidth}
-\vspace{0pt}
-\centering
-\textbf{Warm}\\[2mm]
-\begin{tikzpicture}[x=0.95cm,y=8cm]
-    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
-    \draw[black!60] (0,0) -- (4.0,0);
-    \fill[gray!25] (0.1,0) rectangle (0.9,0.1964);
-    \node[font=\small] at (0.5,-0.025) {Cell ID};
-    \node[font=\small] at (0.5,0.212) {0.5364};
-
-    \fill[purple!45] (1.55,0.1964) rectangle (2.35,0.2000);
-    \node[font=\small] at (1.95,-0.025) {+Ctx};
-    \node[font=\small] at (1.95,0.224) {+0.0036};
-
-    \fill[purple!20] (3.00,0.2000) rectangle (3.80,0.2057);
-    \node[font=\small] at (3.40,-0.025) {+Attn};
-    \node[font=\small] at (3.40,0.236) {+0.0057};
-\end{tikzpicture}
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.32\linewidth}
-\vspace{0pt}
-\centering
-\textbf{Cold drug}\\[2mm]
-\begin{tikzpicture}[x=0.95cm,y=8cm]
-    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
-    \draw[black!60] (0,0) -- (4.0,0);
-    \fill[gray!25] (0.1,0) rectangle (0.9,0.1774);
-    \node[font=\small] at (0.5,-0.025) {Cell ID};
-    \node[font=\small] at (0.5,0.193) {0.5174};
-
-    \fill[purple!45] (1.55,0.1774) rectangle (2.35,0.1839);
-    \node[font=\small] at (1.95,-0.025) {+Ctx};
-    \node[font=\small] at (1.95,0.208) {+0.0065};
-
-    \fill[purple!20] (3.00,0.1839) rectangle (3.80,0.1912);
-    \node[font=\small] at (3.40,-0.025) {+Attn};
-    \node[font=\small] at (3.40,0.223) {+0.0073};
-\end{tikzpicture}
-\end{minipage}
-\hfill
-\begin{minipage}[t]{0.32\linewidth}
-\vspace{0pt}
-\centering
-\textbf{Cold cell}\\[2mm]
-\vspace{1.8mm}
-\begin{tikzpicture}[x=0.95cm,y=8cm]
-    \path[use as bounding box] (0,-0.05) rectangle (4.2,0.24);
-    \draw[black!60] (0,0) -- (4.0,0);
-    \fill[gray!25] (0.1,0) rectangle (0.9,0.0309);
-    \node[font=\small] at (0.5,-0.025) {Cell ID};
-    \node[font=\small] at (0.5,0.046) {0.3709};
-
-    \fill[purple!45] (1.55,0.0309) rectangle (2.35,0.1430);
-    \node[font=\small] at (1.95,-0.025) {+Ctx};
-    \node[font=\small] at (1.95,0.168) {+0.1121};
-
-    \fill[purple!20] (3.00,0.1430) rectangle (3.80,0.1434);
-    \node[font=\small] at (3.40,-0.025) {+Attn};
-    \node[font=\small] at (3.40,0.185) {+0.0004};
-\end{tikzpicture}
-\end{minipage}
-\caption{Incremental PCC gains from different ways of using cell related information in CAGNN. Each panel starts from the cell identity only variant. The second bar shows the gain from replacing cell identity with a cell context derived from the control profile. The third bar shows the additional gain from injecting the same context into the attention score.}
-\label{fig:context_ablation_increment}
-\end{figure}
-
-\subsection{Hybrid context weights}
-\noindent The ablation results above show how prediction quality changes when cell information is introduced in different ways. In the hybrid context model, the training log also reports the effective weights of the cell identity branch and the control derived context branch. Tracking these two weights over training makes it possible to examine how the model balances the two sources of cell information. This analysis is especially relevant for the cold cell setting. If the weight on cell identity becomes too large, the model may rely too much on a fixed label and generalize less well to unseen cell lines. Figure~\ref{fig:hybrid_context_weights_placeholder} shows a suitable layout for this analysis.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.82\linewidth]{figures/hybrid_context_weights_placeholder.png}
-\caption{Illustrative evolution of the two hybrid context weights across training. The figure shows a possible layout for tracking the weight on the cell identity branch and the weight on the control derived context branch over epochs. The values are placeholders for figure design only.}
-\label{fig:hybrid_context_weights_placeholder}
-\end{figure}
-
-\noindent A second ablation study can be done for the baseline family. In the current code, DeepCOP supports different drug feature settings such as target only, fingerprint only, and target plus fingerprint. This makes it possible to test whether the baseline benefits more from chemical descriptors, target annotations, or the combination of both. The comparison should stay focused on the most useful settings.
 
 \section{Uncertainty analysis}
-The uncertainty aware version of the proposed model predicts both a mean response and a gene wise variance term. This makes it possible to study not only prediction accuracy, but also prediction reliability. The analyses in this section use the exported mean prediction $\mu$, the predicted variance $\sigma^{2}$, and the derived standard deviation $\sigma$. The aim is to examine whether the uncertainty output reflects real prediction difficulty and whether it helps explain the behaviour of the model across different evaluation settings.
+In CAGNN, the model predicts both a mean response and a variance term for each gene. The aim here is to examine whether that uncertainty output behaves like a reliability signal. In this section, $\mu$ denotes the predicted mean response, $\sigma^{2}$ denotes the predicted variance, and $\sigma$ is the standard deviation derived from that variance. For probabilistic models, the most direct single quantitative metric would be the test negative log likelihood, because it evaluates the predicted mean and variance together under the Gaussian output assumption. The present section does not yet report test NLL. Instead, it focuses on complementary uncertainty diagnostics through error relations, grouped uncertainty analysis, and coverage of prediction bands. Figure~\ref{fig:uncertainty_summary_placeholder} shows three views of this output, namely uncertainty averaged within each sample, uncertainty versus error, and grouped uncertainty analysis for warm, cold drug target, and cold cell.
 
-\subsection{Uncertainty across splits}
-\noindent A natural starting point is to compare the uncertainty distribution in the warm, cold drug, and cold cell settings. For each test sample, the gene wise uncertainty can be summarized by the average predicted standard deviation. These sample level values can then be compared across splits with a box plot or violin plot. This analysis is useful because the three splits represent different types of distribution shift. If the uncertainty head is meaningful, the harder settings should show a broader or higher uncertainty distribution. In particular, the cold cell split is expected to have the highest uncertainty because unseen cell lines introduce a stronger change in baseline state.
+\subsection{Uncertainty averaged within each sample}
+\noindent Each test sample contains a full vector of predicted gene responses, and each gene also has its own predicted uncertainty. To obtain one simple uncertainty value for the whole sample, the average predicted standard deviation across all genes is used. The left panel of Figure~\ref{fig:uncertainty_summary_placeholder} compares this quantity across the three splits. Warm and cold drug target have similar distributions, while cold cell is shifted slightly upward and shows a somewhat broader upper range.
 
 \subsection{Uncertainty and MSE}
-\noindent The next analysis studies whether uncertainty is associated with absolute prediction error. For each test sample, the average predicted standard deviation can be plotted against the sample wise MSE. A positive relationship would show that the model tends to assign larger uncertainty to samples that are harder to predict in absolute value. This does not prove perfect calibration, but it does show whether the uncertainty output contains useful information about risk.
+\noindent To check whether the model becomes more uncertain when it makes larger mistakes, each test sample is plotted by its uncertainty averaged within that sample and its MSE for that sample. In all three splits, the point clouds show a positive relationship. The trend is strongest in cold cell, moderate in warm, and weaker in cold drug target. When reading the middle upper panel of Figure~\ref{fig:uncertainty_summary_placeholder}, the key pattern is that higher uncertainty values are usually associated with higher MSE.
 
 \subsection{Uncertainty and PCC}
-\noindent A related analysis compares uncertainty with sample wise PCC. Here the same sample level uncertainty summary is compared with the PCC value of each sample. Since larger uncertainty should correspond to harder prediction, a negative relationship is expected. This view complements the MSE analysis. MSE focuses on absolute error size, while PCC focuses on whether the predicted response preserves the gene level pattern. Together, the two plots show whether uncertainty tracks both numerical error and loss of biological response pattern.
+\noindent A related analysis compares the same uncertainty value with PCC computed separately for each sample. This gives a different view from MSE. In Figure~\ref{fig:uncertainty_summary_placeholder}, only cold cell shows a clearly visible negative relationship. In warm and cold drug target, the relationship between uncertainty and PCC is much weaker. The uncertainty output therefore follows absolute error more clearly than correlation measured within each sample.
 
-\subsection{Stratified performance by uncertainty}
-\noindent The test samples can also be grouped by uncertainty level. A simple way is to divide them into low, medium, and high uncertainty groups using quantiles of sample level $\sigma$. The average MSE, PCC, top gene precision, and regulation sign accuracy can then be reported for each group. This analysis shows whether the uncertainty output can separate easier predictions from harder ones. If the grouping is informative, the low uncertainty group should have better predictive performance than the high uncertainty group. Figure~\ref{fig:uncertainty_summary_placeholder} shows one possible layout for these summary analyses.
+\subsection{Uncertainty groups analysis}
+\noindent The same pattern can be shown more directly by grouping test samples into low, medium, and high uncertainty groups. The groups are formed by sorting the samples according to the uncertainty averaged within each sample and splitting them into three equal sized parts. The average MSE and PCC are then calculated inside each group. In the right panel of Figure~\ref{fig:uncertainty_summary_placeholder}, the main pattern is clear for MSE in all three splits, since the high uncertainty group always has the largest mean error. For PCC, the separation is visible mainly in cold cell and much weaker in warm and cold drug target.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.98\linewidth]{figures/uncertainty_summary_placeholder.png}
-\caption{Illustrative uncertainty analysis panels. The figure shows a possible layout for comparing uncertainty across splits, relating sample level uncertainty to sample wise MSE and PCC, and summarizing performance after grouping samples by uncertainty level. The values are placeholders for figure design only.}
+\caption[Uncertainty Summary]{Uncertainty summary in warm, cold drug target, and cold cell, based on the test set. The left panel shows uncertainty averaged within each sample in the three splits. The middle panels compare uncertainty with MSE and PCC. The right panel shows MSE and PCC for low, medium, and high uncertainty groups in each split.}
 \label{fig:uncertainty_summary_placeholder}
 \end{figure}
 
-\subsection{Case studies with mean and uncertainty bands}
-\noindent The uncertainty output also makes the qualitative case study more informative. Instead of showing only the predicted mean, the figure can show the mean together with uncertainty bands such as $\mu \pm \sigma$ or $\mu \pm 2\sigma$ for the most responsive genes in one selected sample. This makes it easier to see whether large errors occur in positions where the model already signals low confidence. A comparison between one low uncertainty sample and one high uncertainty sample would be especially useful. This type of case study connects the summary statistics to an interpretable prediction example. Figure~\ref{fig:uncertainty_case_placeholder} shows a suitable placeholder design for this type of comparison.
+\noindent Figure~\ref{fig:uncertainty_summary_placeholder} highlights three consistent observations. Cold cell is slightly more uncertain overall. Uncertainty is more clearly related to MSE than to PCC. High uncertainty groups also have larger MSE in all three splits.
 
-\begin{figure}[H]
+\subsection{Coverage of prediction bands}
+\noindent Under a Gaussian interpretation, the band $\mu \pm 2\sigma$ can be read as an approximate 95\% prediction interval. To check this more directly, the empirical coverage is calculated on the full test set as the fraction of target genes whose true values fall inside $\mu \pm 2\sigma$. Table~\ref{tab:uncertainty_empirical_coverage} shows that the coverage is close to 95\% in all three splits. This is useful as a calibration style diagnostic, but it does not replace a full likelihood based evaluation such as test NLL.
+
+\begin{table}[htbp]
+\centering
+\caption[Prediction Band Coverage]{Coverage of the prediction band $\mu \pm 2\sigma$ on the full test set.}
+\label{tab:uncertainty_empirical_coverage}
+\begin{tabularx}{0.8\textwidth}{lXXX}
+\hline
+ & Warm & Cold drug & Cold cell \\
+\hline
+Coverage & 95.96\% & 94.00\% & 96.30\% \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{Uncertainty across genes}
+\noindent The uncertainty output can also be studied across genes instead of across samples. For each gene, the predicted standard deviation is averaged across all test samples. This makes it possible to identify genes that are repeatedly assigned higher uncertainty and to compare uncertainty across genes with prediction error across genes. Figure~\ref{fig:gene_level_uncertainty_warm} shows this view.
+
+\noindent The left panel shows the genes with the highest mean predicted $\sigma$. The right panel compares mean $\sigma$ across genes with MSE across genes. The relationship is again positive, since genes with larger mean uncertainty also tend to have larger MSE.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/gene_level_uncertainty_warm.png}
+\caption[Gene Uncertainty]{The left panel shows the top 20 genes with the highest mean predicted standard deviation on the test set. The right panel compares mean $\sigma$ across genes with MSE across genes for all target genes on the test set.}
+\label{fig:gene_level_uncertainty_warm}
+\end{figure}
+
+\subsection{Case studies with mean and uncertainty}
+\noindent The uncertainty output can also be inspected in individual examples. In Figure~\ref{fig:uncertainty_case_placeholder}, each panel shows one test sample. The plot includes the true response, the predicted mean, and the prediction band $\mu \pm 2\sigma$. Table~\ref{tab:uncertainty_empirical_coverage} already shows that this band gives close to 95\% coverage on the full test set. To keep the figure readable, each panel shows only the twelve genes with the largest absolute true response in that sample. The selection is based on $y_{\mathrm{true}}$, not on $y_{\mathrm{pred}}$. For each split, the left panel shows a lower uncertainty sample with a better fit, while the right panel shows a higher uncertainty sample with a larger error. These displayed cases are only visual examples, so their local coverage can differ from the full test set coverage.
+
+\begin{figure}[htbp]
 \centering
 \includegraphics[width=0.98\linewidth]{figures/uncertainty_case_study_placeholder.png}
-\caption{Illustrative case study with predictive uncertainty bands. The left panel shows a sample with lower uncertainty and tighter bands, while the right panel shows a sample with higher uncertainty and wider bands. The values are placeholders for figure design only.}
+\caption[Uncertainty Case Studies]{Case studies with uncertainty bands in warm, cold drug target, and cold cell. In each split, the left panel shows a lower uncertainty sample with a better fit, and the right panel shows a higher uncertainty sample with a larger error. Each panel uses the twelve genes with the largest absolute true response in that sample. The plots show the true response, the predicted mean, and the prediction band $\mu \pm 2\sigma$.}
 \label{fig:uncertainty_case_placeholder}
 \end{figure}
 
-\section{Performance with reduced training data}
-This section studies how model performance changes when the amount of training data is reduced. The focus here is data efficiency. The aim is to see how much performance each model can retain when only a limited part of the training set is available.
+\section{Data efficiency evaluation}
+This part examines how model performance changes as the amount of training data increases in the warm split. Only the warm split is used here, because the goal is to study the effect of training budget itself. In cold drug target and cold cell, performance is also affected by unseen drugs or unseen cell lines, so the effect of less training data would be harder to interpret. It is a separate budget analysis rather than another three split benchmark table. The detailed setup is introduced in the methodology chapter. Figure~\ref{fig:data_efficiency_placeholder} shows how the models improve as more training samples are available.
 
-\subsection{How the training set is reduced}
-\noindent This analysis starts from a fixed warm split. The test set is kept unchanged for all budget levels. The training set is first built in the usual way as paired treatment control examples. Each paired example has a cell line label and a drug identity. A cell drug pair means all training examples that share the same cell line and the same drug.
-
-\noindent The budget is then applied inside each cell drug pair. In the one shot setting, only one paired training example is kept for each cell drug pair. In the 20\%, 30\%, 50\%, and 80\% settings, the corresponding fraction of training examples is kept within each pair. For example, 20\% means that only 20\% of the available paired training examples are kept for that cell drug pair. The examples are sampled randomly within each pair. In the implementation, the kept sample count is rounded up, so each existing pair still contributes at least one example for any positive budget.
-
-\noindent This design keeps the test set fixed and changes only the amount of training data. It also avoids letting large cell drug pairs dominate the whole analysis. Each model is trained under the same budget schedule and evaluated on the same fixed test set. The main metric in this analysis is sample wise PCC. PCC reflects whether the predicted response preserves the gene level pattern within each sample. MSE can also be reported, but the main goal is to track how quickly the response pattern emerges as training data increase.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.98\linewidth]{figures/data_efficiency_placeholder.png}
-\caption{Illustrative data efficiency curves for DeepCOP, GSNN, and CAGNN on a fixed warm split. The figure is a placeholder for the planned budget based evaluation and shows the intended layout of the final comparison.}
+\includegraphics[width=0.94\linewidth]{figures/data_efficiency_warm_real.png}
+\caption[Warm Data Efficiency]{Warm split data efficiency results. The left panel shows test PCC and the right panel shows test MSE for DeepCOP, GSNN, and CAGNN across the displayed training budgets. In the updated DeepCOP budget runs, DeepCOP also improves clearly as more training data are used, while GSNN changes less across the same budgets.}
 \label{fig:data_efficiency_placeholder}
 \end{figure}
 
-\subsection{What this setting shows}
-\noindent The budget curves give a direct view of data efficiency. A model with a stronger inductive bias should reach a higher PCC when only a small amount of training data is available. The analysis is also useful for studying whether the model design helps when repeated examples for the same cell drug pair are limited.
+\noindent Figure~\ref{fig:data_efficiency_placeholder} shows that CAGNN remains strongest on PCC across the displayed warm split budgets, and its advantage is already visible at smaller budgets. In the updated DeepCOP budget runs, DeepCOP also improves steadily as more data are added, with higher PCC and lower MSE across the shown budgets. GSNN changes less over the same range.
 
 \section{Interpretation and case studies}
-A compact case study helps connect the summary metrics to concrete perturbation examples. One useful strategy is to group test samples by drug and summarize the sample wise PCC within each drug. This makes it possible to identify drugs that are predicted relatively well and drugs that remain difficult. A representative sample can then be selected for closer inspection. This kind of example makes the benchmark easier to read because it shows which genes are recovered well and where the models still differ.
+\noindent Average metrics show overall performance, but they do not show how the model uses the graph in one specific example. The following cases are selected from CAGNN. Here attention means the weight that the model gives to one graph edge during message passing. A larger weight means that the model uses that edge more strongly in the final prediction. These weights are not treated as proof of a real biological mechanism. The analysis instead asks two simple questions. Are the highly weighted edges easier to understand when the prediction is accurate, and does the model keep giving high weights to similar edges across different settings.
 
-\noindent Figure~\ref{fig:case_study_placeholder} shows one representative sample from the cold drug split, here the perturbation \texttt{BRD-A65767837} in the A549 cell line. The figure lists the genes with the largest absolute true response and compares the true values with the predictions from DeepCOP and GSNN. In this example, both models recover part of the sign pattern, but the predicted sizes still differ for several genes. This matches the earlier result that agreement in pattern and agreement in absolute value do not always appear together.
+\noindent Table~\ref{tab:case_study_terms} gives short explanations of the main biology terms used in this section. These short notes are only meant to help reading. They do not replace the full biological background of each gene or drug class.
 
-\noindent The notebook based case study also supports a second level of analysis for the attention based model. After ranking drugs by median sample wise PCC, the best and worst predicted drugs can be examined with drug specific attention summaries, top response genes, and high attention edges. These views are useful for interpretation, but the main text here stays focused on the prediction comparison itself.
-
-\begin{figure}[H]
+\begin{table}[htbp]
 \centering
-\includegraphics[width=0.94\linewidth]{figures/case_study_prediction_example.png}
-\caption{Representative prediction case study from the cold drug split. The figure compares the true response with the predictions of DeepCOP and GSNN for the genes with the largest absolute response in one selected perturbation sample, \texttt{BRD-A65767837} in A549.}
-\label{fig:case_study_placeholder}
+\caption[Biology Terms for Case Studies]{Short explanations of selected biology terms used in the attention analysis and case studies.}
+\label{tab:case_study_terms}
+\begin{tabular}{p{3.0cm}p{10.0cm}}
+\hline
+Term & Simple meaning \\
+\hline
+\texttt{SB-939} & A drug in the case study. It is reported as an HDAC inhibitor. \\
+\texttt{mifobate} & A drug in the case study. It is reported to act on \texttt{PPARG}. \\
+\texttt{alvocidib} & A drug in the case study. It is reported as a \texttt{CDK inhibitor}. \\
+\texttt{HDAC inhibitor} & A drug class that acts on proteins that help control which genes are turned on or off. \\
+\texttt{PPARG} & A regulator related to cell state and basic cell activity. \\
+\texttt{CDK inhibitor} & A drug class that acts on proteins involved in cell division. \\
+\texttt{BCL2 family proteins} & Proteins involved in whether a cell survives or dies. \\
+\texttt{TP53} & A broad stress and damage response regulator. It is often active when the cell is under pressure or has been damaged. \\
+\texttt{NR3C1} & A regulator related to stress response and cell state. \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent For the cold drug target split, the drugs are ranked by prediction quality. Only drugs with at least ten test samples are kept, so that the comparison is based on a stable group of examples.
+
+\noindent Figure~\ref{fig:best_drug_top20_heatmap} and Figure~\ref{fig:worst_drug_top20_heatmap} show where the model places the largest edge weights for the 20 best and 20 worst predicted drugs. Each figure highlights the strongest connections. This gives a view of whether the model keeps its focus on a smaller set of edges or spreads the weight across many edges.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/attention_best_drugs_top20_heatmap.png}
+\caption[Best Cold Drug Heatmap]{Attention heatmap for the top 20 best drugs in the cold drug target split. For each drug, the heatmap shows the strongest edges between different genes. The values are scaled within each drug. Darker blue regions show where the model puts more attention.}
+\label{fig:best_drug_top20_heatmap}
 \end{figure}
 
-\noindent A second case study view summarizes how the attention based model distributes edge importance for well predicted and difficult drugs. Instead of showing a few globally shared edges, the figure pools the top non self edges selected separately for each drug. This makes it possible to see whether every drug still has a sparse set of highly weighted edges, even when the exact edge identity differs across perturbations.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
 \centering
-\includegraphics[width=0.98\linewidth]{figures/attention_best_worst_heatmap.png}
-\caption{Grouped attention heatmap for the best and worst predicted drugs in the cold drug split. Drugs are ordered by median sample wise PCC. For each drug, the heatmap includes the union of its top non self attention edges, and the values are normalized within each drug. Brighter regions show that each perturbation still relies on a sparse subset of edges, while the specific edge positions vary across drugs.}
-\label{fig:best_worst_drug_case_placeholder}
+\includegraphics[width=\linewidth]{figures/attention_worst_drugs_top20_heatmap.png}
+\caption[Worst Cold Drug Heatmap]{Attention heatmap for the top 20 worst drugs in the cold drug target split. For each drug, the heatmap shows the strongest edges between different genes. The values are adjusted within each drug. Darker blue regions show where the model puts more attention.}
+\label{fig:worst_drug_top20_heatmap}
 \end{figure}
 
-\section{Discussion}
-Taken together, the results in this chapter support a clear picture. Simple baselines can predict part of the perturbation response, but stronger generalization needs explicit modelling of drug information, cellular context, and biological structure. The graph based models are most useful when the test distribution moves away from the training data.
+\noindent These two heatmaps give an overview before looking at individual drugs. In the best predicted cases, darker values often appear in a smaller and more repeated set of edges. In the worst predicted cases, the weights are spread more widely. But weak predictions can still contain large edge weights. For that reason, the heatmaps alone are not enough, and the edge lists in Table~\ref{tab:attention_cold_drug_target_best_worst} are needed for closer reading.
 
-\noindent The results also show that a good warm split score should be read with care. Warm performance is important because it shows whether the model can fit the task. But it is not enough to claim strong biological generalization. The cold drug and cold cell settings are more useful. The cold cell result is especially important because it shows how hard it is to transfer perturbation knowledge across cellular contexts.
+\noindent In the updated cold drug target ranking, the best drug with enough test samples is SB-939, labeled as \texttt{BRD-K86797399}. This compound is reported as an \texttt{HDAC inhibitor}. The weakest prediction is mifobate, labeled as \texttt{BRD-A72066420}, which is reported to act on \texttt{PPARG}. In the SB-939 case, the top edges include \texttt{NFE2L2}$\rightarrow$\texttt{TXNRD1} and \texttt{STAT3}$\rightarrow$\texttt{PROS1}. These edges involve genes related to broad cell responses. This makes the result easier to relate to downstream cell response genes.
 
-\noindent Several limitations remain. Drug target annotations are incomplete and may miss indirect or secondary mechanisms. The biological graph is curated, so it is biased toward well studied pathways. Some cell lines have much richer training support than others. The final benchmark is also limited to the 978 landmark genes. This keeps the task manageable, but it leaves much of the transcriptome outside the target. These points do not invalidate the approach, but they set clear limits on how the results should be read.
+\noindent In the mifobate case, the top edges include \texttt{HIF1A}$\rightarrow$\texttt{KDM3A} and \texttt{CDK1}$\rightarrow$\texttt{RNMT}. These edges mainly involve genes such as \texttt{HIF1A}, \texttt{CDK1}, and \texttt{MYC}, which are related to many common cell processes. Although these are valid graph edges, they are harder to connect to the reported target of the drug. In this example, large edge weights are less helpful for explanation.
 
-\noindent Another important lesson is methodological. Small details in data pairing and split construction can strongly change the apparent difficulty of the benchmark. The final pipeline in this thesis separates the split step from the control matching step and isolates the control pools of the training and test sets. This design reduces overly optimistic evaluation and makes the reported numbers more credible.
+\begin{table}[htbp]
+\centering
+\caption[Best and Worst Drug Edges]{Top high attention edges for the best and worst cold drug target examples. The left three columns show the best cold drug target, \texttt{BRD-K86797399}. The right three columns show the worst cold drug target, \texttt{BRD-A72066420}. The type column indicates whether the prior graph marks the edge as stimulation or inhibition. Attention values come from the last attention layer.}
+\label{tab:attention_cold_drug_target_best_worst}
+\begin{tabular}{lcllcl}
+\hline
+Best cold drug target edge & Type & Attention & Worst cold drug target edge & Type & Attention \\
+\hline
+\texttt{NFE2L2}$\rightarrow$\texttt{TXNRD1} & stimulation & 0.6672 & \texttt{HIF1A}$\rightarrow$\texttt{KDM3A} & stimulation & 0.6995 \\
+\texttt{STAT3}$\rightarrow$\texttt{PROS1} & stimulation & 0.6364 & \texttt{CDK1}$\rightarrow$\texttt{RNMT} & stimulation & 0.6812 \\
+\texttt{STAT3}$\rightarrow$\texttt{CSRP1} & stimulation & 0.6325 & \texttt{CDK1}$\rightarrow$\texttt{USP1} & stimulation & 0.6787 \\
+\texttt{FAS}$\rightarrow$\texttt{DAXX} & stimulation & 0.5709 & \texttt{MYC}$\rightarrow$\texttt{ZNF451} & stimulation & 0.6751 \\
+\texttt{GATA2}$\rightarrow$\texttt{MAPKAPK3} & stimulation & 0.5646 & \texttt{HIF1A}$\rightarrow$\texttt{ALDOA} & stimulation & 0.6710 \\
+\texttt{RB1}$\rightarrow$\texttt{TP53BP2} & stimulation & 0.5635 & \texttt{MYC}$\rightarrow$\texttt{PAICS} & stimulation & 0.6695 \\
+\texttt{E2F2}$\rightarrow$\texttt{EED} & stimulation & 0.5626 & \texttt{MYC}$\rightarrow$\texttt{RFC2} & stimulation & 0.6677 \\
+\texttt{HMGA2}$\rightarrow$\texttt{IGF2BP2} & stimulation & 0.5601 & \texttt{MYC}$\rightarrow$\texttt{FPGS} & stimulation & 0.6669 \\
+\texttt{CEBPA}$\rightarrow$\texttt{HSD17B11} & stimulation & 0.5596 & \texttt{CDK1}$\rightarrow$\texttt{ORC1} & stimulation & 0.6664 \\
+\texttt{USP7}$\rightarrow$\texttt{SKP1} & inhibition & 0.5567 & \texttt{MYC}$\rightarrow$\texttt{NIT1} & stimulation & 0.6639 \\
+\hline
+\end{tabular}
+\end{table}
 
-\section{Summary of findings}
-Several findings stand out in this chapter. The benchmark comparison suggests that graph based models offer an advantage over simpler baselines, especially beyond the warm split. CAGNN combines graph attention, drug related features, and counterfactual regularization. The ablation analysis suggests that each of these parts contributes to the final result. The top gene analysis adds another view of model quality by showing whether the model can recover the strongest up regulated and down regulated genes.
+\noindent Table~\ref{tab:attention_cold_drug_target_best_worst} makes this contrast clearer. The main difference is not simply the size of the edge weights. The weak case can even have larger values. The more meaningful difference is whether the model keeps giving high weights to a small set of edges that can be described clearly. Attention should therefore be read together with prediction accuracy, not on its own.
 
-\noindent The most difficult setting is generalization to unseen cell lines. This result shows both the value and the limit of the current framework. Prior molecular knowledge helps, but robust transfer across cellular contexts is still hard. This tension is central to the thesis. It leads into the next chapter, which discusses what was achieved, what remains hard, and which directions look most useful for future work.
+\noindent The cold cell test asks a different question. Instead of comparing different drugs, it asks whether the same drug keeps a readable set of high weight edges when the cell line is unseen. Figure~\ref{fig:best_drug_top20_heatmap_cold_cell} shows the top 20 best drugs in this setting.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/attention_best_drugs_top20_heatmap_cold_cell.png}
+\caption[Best Cold Cell Heatmap]{Attention heatmap for the top 20 best drugs in the cold cell split. For each drug, the heatmap shows the strongest edges between different genes. The values are scaled within each drug. Darker blue regions show where the model puts more attention.}
+\label{fig:best_drug_top20_heatmap_cold_cell}
+\end{figure}
+
+\noindent Figure~\ref{fig:best_drug_top20_heatmap_cold_cell} shows that several well predicted cold cell drugs still produce clear edge weight patterns even when the cell line is unseen. Some sets of edges reappear across drugs. However, the heatmap alone cannot show whether one specific drug keeps giving high weights to similar edges across warm and cold cell. That question needs a direct comparison of the same drug in both settings.
+
+\noindent Table~\ref{tab:attention_shared_drug_warm_cold_cell} compares the same drug, alvocidib labelled as \texttt{BRD-K87909389}, in warm and cold cell. This drug is reported as a \texttt{CDK inhibitor}. It is an appropriate example because the model performs well on this drug in both settings.
+
+\noindent The table shows a shift in the highly weighted edges. In the warm setting, several top edges involve genes related to cell division, such as \texttt{RB1} and \texttt{E2F2}. In the cold cell setting, more top edges involve genes related to broader stress and damage response, such as \texttt{TP53} and \texttt{NR3C1}. When the cell line is unseen, the model gives more weight to broad response genes than to the more specific genes seen in the warm setting.
+
+\begin{table}[htbp]
+\centering
+\caption[Shared Drug Edges]{Top high attention edges for one shared drug in warm and cold cell. The same drug, \texttt{BRD-K87909389}, is shown in both settings. The type column indicates whether the prior graph marks the edge as stimulation or inhibition. Attention values come from the last attention layer.}
+\label{tab:attention_shared_drug_warm_cold_cell}
+\begin{tabular}{lcllcl}
+\hline
+Warm edge & Type & Attention & Cold cell edge & Type & Attention \\
+\hline
+\texttt{RB1}$\rightarrow$\texttt{TP53BP2} & stimulation & 0.8077 & \texttt{NR3C1}$\rightarrow$\texttt{TIMELESS} & stimulation & 0.8136 \\
+\texttt{HMGA2}$\rightarrow$\texttt{IGF2BP2} & stimulation & 0.8006 & \texttt{TP53}$\rightarrow$\texttt{ASCC3} & stimulation & 0.8044 \\
+\texttt{GATA2}$\rightarrow$\texttt{MAPKAPK3} & stimulation & 0.7999 & \texttt{TP53}$\rightarrow$\texttt{CRYZ} & inhibition & 0.7978 \\
+\texttt{ELAVL1}$\rightarrow$\texttt{TRIB3} & stimulation & 0.7916 & \texttt{ABL1}$\rightarrow$\texttt{CRKL} & stimulation & 0.7975 \\
+\texttt{ELAVL1}$\rightarrow$\texttt{ADAM10} & stimulation & 0.7899 & \texttt{TP53}$\rightarrow$\texttt{P4HA2} & stimulation & 0.7950 \\
+\texttt{E2F2}$\rightarrow$\texttt{EED} & stimulation & 0.7892 & \texttt{TP53}$\rightarrow$\texttt{REEP5} & inhibition & 0.7947 \\
+\texttt{SMAD3}$\rightarrow$\texttt{BAMBI} & stimulation & 0.7846 & \texttt{PLK1}$\rightarrow$\texttt{SMC1A} & inhibition & 0.7947 \\
+\texttt{GATA3}$\rightarrow$\texttt{HAT1} & stimulation & 0.7845 & \texttt{ABL1}$\rightarrow$\texttt{SORBS3} & stimulation & 0.7935 \\
+\texttt{PAK1}$\rightarrow$\texttt{PGM1} & stimulation & 0.7836 & \texttt{TP53}$\rightarrow$\texttt{DUSP11} & stimulation & 0.7926 \\
+\texttt{GATA3}$\rightarrow$\texttt{BLCAP} & stimulation & 0.7832 & \texttt{TP53}$\rightarrow$\texttt{CCNB2} & inhibition & 0.7919 \\
+\texttt{GATA3}$\rightarrow$\texttt{ZW10} & stimulation & 0.7824 & \texttt{TP53}$\rightarrow$\texttt{ITFG1} & stimulation & 0.7857 \\
+\texttt{GATA3}$\rightarrow$\texttt{VGLL4} & stimulation & 0.7818 & \texttt{CHEK1}$\rightarrow$\texttt{TLK2} & inhibition & 0.7794 \\
+\texttt{HIF1A}$\rightarrow$\texttt{SLC11A2} & stimulation & 0.7817 & \texttt{PLK1}$\rightarrow$\texttt{ZMYM2} & inhibition & 0.7737 \\
+\texttt{HIF1A}$\rightarrow$\texttt{ALDOA} & stimulation & 0.7780 & \texttt{HIF1A}$\rightarrow$\texttt{BNIP3} & stimulation & 0.7726 \\
+\texttt{HIF1A}$\rightarrow$\texttt{BNIP3} & stimulation & 0.7772 & \texttt{NR3C1}$\rightarrow$\texttt{CEBPD} & stimulation & 0.7639 \\
+\texttt{HIF1A}$\rightarrow$\texttt{KDM3A} & stimulation & 0.7770 & \texttt{ELAVL1}$\rightarrow$\texttt{ADAM10} & stimulation & 0.7629 \\
+\texttt{TFDP1}$\rightarrow$\texttt{NRIP1} & stimulation & 0.7766 & \texttt{MYC}$\rightarrow$\texttt{PSMG1} & stimulation & 0.7614 \\
+\texttt{HIF1A}$\rightarrow$\texttt{S100A4} & stimulation & 0.7699 & \texttt{ELAVL1}$\rightarrow$\texttt{TRIB3} & stimulation & 0.7596 \\
+\texttt{MYC}$\rightarrow$\texttt{PAICS} & stimulation & 0.7514 & \texttt{MYC}$\rightarrow$\texttt{UBE2C} & stimulation & 0.7587 \\
+\texttt{MYC}$\rightarrow$\texttt{NIT1} & stimulation & 0.7512 & \texttt{HIF1A}$\rightarrow$\texttt{KDM3A} & stimulation & 0.7583 \\
+\hline
+\end{tabular}
+\end{table}
+
+\noindent At the same time, this comparison also shows a limitation. In cold cell, the model does not keep giving high weights to the same specific cell division related edges seen in warm. It still highlights some readable edges, but the result is less specific. This shows that unseen cell lines remain difficult, even when the overall prediction score is good.
+
+\noindent Table~\ref{tab:attention_shared_drug_warm_cold_cell_abt737} gives a second shared drug example, \texttt{BRD-K56301217}. The known targets of this drug are \texttt{BCL2} family proteins.
+
+\noindent The table shows a different result from the alvocidib example. The two highest ranked edges are \texttt{BAX}$\rightarrow$\texttt{VDAC1} and \texttt{BECN1}$\rightarrow$\texttt{PIK3R4}. These two edges stay at the top in both warm and cold cell. Several other edges also overlap between the two settings. The model therefore keeps giving high weights to similar edges even when the cell background changes.
+
+\noindent This consistency is useful when comparing the two settings. In the alvocidib example, the set of high weight edges became broader in cold cell. Here the result is more stable across settings. This shows that the model can keep giving high weights to a similar set of edges across different cell backgrounds for some drugs. 
+
+\begin{table}[htbp]
+\centering
+\caption[Second Shared Drug Edges]{Top high attention edges for a second shared drug in warm and cold cell. The drug is \texttt{BRD-K56301217}. Its known target genes are \texttt{BCL2}, \texttt{BCL2L1}, and \texttt{BCL2L2}. The type column indicates whether the prior graph marks the edge as stimulation or inhibition. Attention values come from the last attention layer.}
+\label{tab:attention_shared_drug_warm_cold_cell_abt737}
+\begin{tabular}{lcllcl}
+\hline
+Warm edge & Type & Attention & Cold cell edge & Type & Attention \\
+\hline
+\texttt{BECN1}$\rightarrow$\texttt{PIK3R4} & stimulation & 0.7320 & \texttt{BAX}$\rightarrow$\texttt{VDAC1} & stimulation & 0.6833 \\
+\texttt{BAX}$\rightarrow$\texttt{VDAC1} & stimulation & 0.7176 & \texttt{BECN1}$\rightarrow$\texttt{PIK3R4} & stimulation & 0.6426 \\
+\texttt{RB1}$\rightarrow$\texttt{TP53BP2} & stimulation & 0.5730 & \texttt{SRC}$\rightarrow$\texttt{MAPKAPK5} & stimulation & 0.5716 \\
+\texttt{E2F2}$\rightarrow$\texttt{EED} & stimulation & 0.5427 & \texttt{GATA3}$\rightarrow$\texttt{BLCAP} & stimulation & 0.5644 \\
+\texttt{GATA2}$\rightarrow$\texttt{MAPKAPK3} & stimulation & 0.5420 & \texttt{E2F2}$\rightarrow$\texttt{EED} & stimulation & 0.5619 \\
+\texttt{PCNA}$\rightarrow$\texttt{POLD4} & stimulation & 0.5379 & \texttt{GATA2}$\rightarrow$\texttt{MAPKAPK3} & stimulation & 0.5584 \\
+\texttt{HMGA2}$\rightarrow$\texttt{IGF2BP2} & stimulation & 0.5294 & \texttt{GATA3}$\rightarrow$\texttt{VGLL4} & stimulation & 0.5558 \\
+\texttt{HIF1A}$\rightarrow$\texttt{KDM3A} & stimulation & 0.5283 & \texttt{SRC}$\rightarrow$\texttt{CLTC} & stimulation & 0.5547 \\
+\texttt{GATA3}$\rightarrow$\texttt{ZW10} & stimulation & 0.5272 & \texttt{EGR1}$\rightarrow$\texttt{EAPP} & stimulation & 0.5513 \\
+\texttt{HIF1A}$\rightarrow$\texttt{BNIP3} & stimulation & 0.5270 & \texttt{CEBPA}$\rightarrow$\texttt{HSD17B11} & stimulation & 0.5474 \\
+\texttt{CEBPA}$\rightarrow$\texttt{HSD17B11} & stimulation & 0.5248 & \texttt{MYLK}$\rightarrow$\texttt{MYL9} & stimulation & 0.5468 \\
+\texttt{NFE2L2}$\rightarrow$\texttt{TXNRD1} & stimulation & 0.5248 & \texttt{SRC}$\rightarrow$\texttt{DNM1} & stimulation & 0.5460 \\
+\texttt{PHKG2}$\rightarrow$\texttt{PYGL} & stimulation & 0.5238 & \texttt{GATA3}$\rightarrow$\texttt{ZW10} & stimulation & 0.5433 \\
+\texttt{CFLAR}$\rightarrow$\texttt{ATG3} & inhibition & 0.5236 & \texttt{GATA3}$\rightarrow$\texttt{HAT1} & stimulation & 0.5410 \\
+\texttt{GATA3}$\rightarrow$\texttt{HAT1} & stimulation & 0.5207 & \texttt{CXCR4}$\rightarrow$\texttt{GNAI2} & stimulation & 0.5409 \\
+\texttt{SRC}$\rightarrow$\texttt{MAPKAPK5} & stimulation & 0.5186 & \texttt{KIF5C}$\rightarrow$\texttt{TRAK2} & stimulation & 0.5406 \\
+\texttt{GATA3}$\rightarrow$\texttt{VGLL4} & stimulation & 0.5186 & \texttt{SRC}$\rightarrow$\texttt{MPZL1} & stimulation & 0.5404 \\
+\texttt{NR3C1}$\rightarrow$\texttt{TIMELESS} & stimulation & 0.5181 & \texttt{STAT3}$\rightarrow$\texttt{CSRP1} & stimulation & 0.5357 \\
+\texttt{CSNK2A2}$\rightarrow$\texttt{NOL3} & stimulation & 0.5180 & \texttt{STXBP1}$\rightarrow$\texttt{STX1A} & stimulation & 0.5345 \\
+\texttt{EGR1}$\rightarrow$\texttt{DUSP4} & stimulation & 0.5175 & \texttt{NFE2L2}$\rightarrow$\texttt{TXNRD1} & stimulation & 0.5316 \\
+\hline
+\end{tabular}
+\end{table}
+\noindent Overall, these case studies show that attention can be helpful. When the prediction is strong, the highly weighted edges are often easier to connect to known drug targets or to a later response that looks reasonable. When the prediction is weak, large edge weights can still appear, but they are harder to summarize in a meaningful way. The warm and cold cell comparisons also show two possible results. For some drugs, the model shifts toward broader response genes in unseen cells. For other drugs, it keeps giving high weights to a more similar set of edges. Attention should therefore be interpreted together with prediction quality and prior biological knowledge.

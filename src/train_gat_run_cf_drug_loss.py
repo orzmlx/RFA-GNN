@@ -1,22 +1,30 @@
 import argparse
 import inspect
 import os
+import shutil
 import sys
-
+import tempfile
+from base_gnn import BaseLineGAT
+from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, build_scheme_a_split_data
 import numpy as np
 import tensorflow as tf
 import json
 from scipy.stats import pearsonr
-from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from tensorflow import keras
-
-
-def _split_mean_logvar(pred):
-    pred = np.asarray(pred)
-    if pred.ndim == 3 and pred.shape[-1] == 2:
-        return pred[..., 0], pred[..., 1]
-    return pred, None
+from train_common import (
+    append_split_suffix,
+    parse_split_modes,
+    samplewise_masked_metrics,
+    save_npz,
+    split_mean_logvar,
+)
+from train_tf_common import (
+    GenericPCCCallback,
+    GraphModelWrapper,
+    build_uncertainty_stats_fn,
+    collect_gat_scale_stats,
+)
 
 
 def eval_pcc_mse(
@@ -48,7 +56,7 @@ def eval_pcc_mse(
         pred = model.predict([ctl, drug, cells], batch_size=batch_size, verbose=0)
     else:
         pred = model.predict([ctl, drug, cells, drug_fp], batch_size=batch_size, verbose=0)
-    pred, _ = _split_mean_logvar(pred)
+    pred, _ = split_mean_logvar(pred)
 
     if bool(y_is_residual) and cell_mean is not None:
         cm = np.asarray(cell_mean, dtype=np.float32)[cells]
@@ -66,368 +74,29 @@ def eval_pcc_mse(
             p, _ = pearsonr(yt, yp)
             pcc_list.append(p)
     avg_pcc = float(np.mean(pcc_list)) if pcc_list else 0.0
-    mse = float(mean_squared_error(y_true_valid, pred_valid))
+    mse = float(np.mean((y_true_valid - pred_valid) ** 2))
     return {"mse": mse, "pcc": avg_pcc}
 
 
-def _save_npz(path, **kwargs):
-    payload = {}
-    for k, v in kwargs.items():
-        if isinstance(v, (dict, list)):
-            try:
-                payload[k] = np.asarray([json.dumps(v)], dtype=object)
-            except TypeError:
-                payload[k] = np.asarray([v], dtype=object)
-        else:
-            payload[k] = v
-    out_dir = os.path.dirname(str(path))
-    if out_dir != "":
-        os.makedirs(out_dir, exist_ok=True)
-    np.savez_compressed(path, **payload)
-
-
-def _samplewise_metrics(y_true, y_pred, loss_mask):
-    valid_indices = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    yt = y_true[:, valid_indices]
-    yp = y_pred[:, valid_indices]
-    pcc = np.zeros((len(yt),), dtype=np.float32)
-    mse = np.zeros((len(yt),), dtype=np.float32)
-    for i in range(len(yt)):
-        a = yt[i]
-        b = yp[i]
-        mse[i] = float(np.mean((a - b) ** 2))
-        if np.std(a) > 1e-6 and np.std(b) > 1e-6:
-            pcc[i] = float(pearsonr(a, b)[0])
-        else:
-            pcc[i] = 0.0
-    return pcc, mse
-
-
-def _interval_metrics(y_true, mean_pred, logvar_pred, loss_mask):
-    if logvar_pred is None:
-        return None
-    valid_indices = np.where(np.asarray(loss_mask)[0] > 0)[0]
-    yt = np.asarray(y_true, dtype=np.float32)[:, valid_indices]
-    mu = np.asarray(mean_pred, dtype=np.float32)[:, valid_indices]
-    sigma = np.exp(0.5 * np.asarray(logvar_pred, dtype=np.float32)[:, valid_indices])
-    pred_lo = mu - sigma
-    pred_hi = mu + sigma
-    pcc_lo, mse_lo = _samplewise_metrics(yt, pred_lo, np.ones((1, yt.shape[1]), dtype=np.float32))
-    pcc_hi, mse_hi = _samplewise_metrics(yt, pred_hi, np.ones((1, yt.shape[1]), dtype=np.float32))
-    return {
-        "pcc_low": float(np.mean(pcc_lo)) if len(pcc_lo) > 0 else 0.0,
-        "pcc_high": float(np.mean(pcc_hi)) if len(pcc_hi) > 0 else 0.0,
-        "mse_low": float(np.mean(mse_lo)) if len(mse_lo) > 0 else 0.0,
-        "mse_high": float(np.mean(mse_hi)) if len(mse_hi) > 0 else 0.0,
-    }
-
-
-def build_split_masks(split_mode, drug_ids, cell_idx, test_frac, seed=42):
-    split_mode = str(split_mode).strip()
-    if test_frac <= 0.0 or test_frac >= 1.0:
-        raise ValueError("--test_frac 需要在 (0, 1) 之间")
-    rng = np.random.default_rng(int(seed))
-    n = len(drug_ids)
-    if split_mode == "warm":
-        if n < 2:
-            raise ValueError("warm 需要至少 2 个样本")
-        n_test = max(1, int(n * test_frac))
-        n_test = min(n_test, n - 1)
-        test_idx = rng.choice(np.arange(n), size=n_test, replace=False)
-        test_mask = np.zeros((n,), dtype=bool)
-        test_mask[test_idx] = True
-        train_mask = ~test_mask
-        print(f"Split=warm | Held-out samples: {int(np.sum(test_mask))}/{n}")
-        return train_mask, test_mask
-    elif split_mode == "cold_cell":
-        unique_cells = np.unique(cell_idx)
-        if len(unique_cells) < 2:
-            raise ValueError("cold_cell 需要至少 2 个细胞系；请设置 --cell_line ALL 并避免过小的 --max_samples")
-        n_test = max(1, int(len(unique_cells) * test_frac))
-        n_test = min(n_test, len(unique_cells) - 1)
-        test_cells_set = rng.choice(unique_cells, n_test, replace=False)
-        test_mask = np.isin(cell_idx, test_cells_set)
-        train_mask = ~test_mask
-        print(f"Split=cold_cell | Held-out cells: {len(test_cells_set)}/{len(unique_cells)}")
-        return train_mask, test_mask
-    elif split_mode == "cold_drug":
-        unique_drugs = np.unique(drug_ids)
-        if len(unique_drugs) < 2:
-            raise ValueError("cold_drug 需要至少 2 个药物；请避免过小的 --max_samples")
-        n_test = max(1, int(len(unique_drugs) * test_frac))
-        n_test = min(n_test, len(unique_drugs) - 1)
-        test_drugs = rng.choice(unique_drugs, n_test, replace=False)
-        test_mask = np.isin(drug_ids, test_drugs)
-        train_mask = ~test_mask
-        print(f"Split=cold_drug | Held-out drugs: {len(test_drugs)}/{len(unique_drugs)}")
-        return train_mask, test_mask
-    raise ValueError(f"未知 split_mode: {split_mode}")
-
-
-def parse_split_modes(raw, fallback):
-    valid = {"warm", "cold_drug", "cold_cell"}
-    s = str(raw).strip()
-    if s == "":
-        return [str(fallback)]
-    modes = [t.strip() for t in s.split(",") if t.strip() != ""]
-    bad = [m for m in modes if m not in valid]
-    if bad:
-        raise ValueError(f"--split_modes 包含不支持的值: {bad}")
-    seen = []
-    for m in modes:
-        if m not in seen:
-            seen.append(m)
-    return seen
-
-
-def append_split_suffix(path, split_mode):
-    s = str(path).strip()
-    if s == "":
-        return ""
-    suffix = f".{str(split_mode).strip()}"
-    if s.endswith(".weights.h5"):
-        return s[: -len(".weights.h5")] + suffix + ".weights.h5"
-    stem, ext = os.path.splitext(s)
-    return f"{stem}{suffix}{ext}"
-
-
-class PCCCallback(keras.callbacks.Callback):
-    def __init__(self, loss_mask, train_data, val_data, batch_size=32, max_eval=2048, cell_mean=None, y_is_residual=False):
-        super().__init__()
-        self.loss_mask = loss_mask
-        self.train_data = train_data
-        self.val_data = val_data
-        self.batch_size = int(batch_size)
-        self.max_eval = int(max_eval) if max_eval is not None else None
-        self.cell_mean = cell_mean
-        self.y_is_residual = bool(y_is_residual)
-
-    def _uncertainty_stats(self, data_pack):
-        if not bool(getattr(self.model, "predict_uncertainty", False)):
-            return None
-        if len(data_pack) == 4:
-            ctl, drug, cells, y_true = data_pack
-            drug_fp = None
-        else:
-            ctl, drug, cells, drug_fp, y_true = data_pack
-        if self.max_eval is not None and len(ctl) > int(self.max_eval):
-            rng = np.random.default_rng(0)
-            idx = rng.choice(len(ctl), size=int(self.max_eval), replace=False)
-            ctl = ctl[idx]
-            drug = drug[idx]
-            cells = cells[idx]
-            y_true = y_true[idx]
-            if drug_fp is not None:
-                drug_fp = drug_fp[idx]
-        if drug_fp is None:
-            pred = self.model.predict([ctl, drug, cells], batch_size=self.batch_size, verbose=0)
-        else:
-            pred = self.model.predict([ctl, drug, cells, drug_fp], batch_size=self.batch_size, verbose=0)
-        mean_pred, logvar_pred = _split_mean_logvar(pred)
-        if logvar_pred is None:
-            return None
-        mean_pred = np.asarray(mean_pred, dtype=np.float32)
-        clip_min = float(getattr(self.model, "logvar_clip_min", -6.0))
-        clip_max = float(getattr(self.model, "logvar_clip_max", 2.0))
-        logvar_pred = np.clip(np.asarray(logvar_pred, dtype=np.float32), clip_min, clip_max)
-        y_true = np.asarray(y_true, dtype=np.float32)
-        if bool(self.y_is_residual) and self.cell_mean is not None:
-            cm = np.asarray(self.cell_mean, dtype=np.float32)[cells]
-            y_true = y_true + cm
-            mean_pred = mean_pred + cm
-        valid_indices = np.where(np.asarray(self.loss_mask)[0] > 0)[0]
-        mean_valid = mean_pred[:, valid_indices]
-        logvar_valid = logvar_pred[:, valid_indices]
-        sigma_valid = np.exp(0.5 * logvar_valid)
-        interval = _interval_metrics(y_true, mean_pred, logvar_pred, self.loss_mask)
-        return {
-            "mu_mean": float(np.mean(mean_valid)),
-            "mu_std": float(np.std(mean_valid)),
-            "logvar_mean": float(np.mean(logvar_valid)),
-            "logvar_min": float(np.min(logvar_valid)),
-            "logvar_max": float(np.max(logvar_valid)),
-            "sigma_mean": float(np.mean(sigma_valid)),
-            "interval": interval,
-        }
-
-    def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        target_scale = None
-        cell_scale = None
-        context_scale = None
-        try:
-            inner = getattr(getattr(self.model, "core", None), "gat", None)
-            if inner is not None and hasattr(inner, "get_logged_scales"):
-                scale_dict = inner.get_logged_scales()
-                target_scale = scale_dict.get("target_scale")
-                cell_scale = scale_dict.get("cell_scale")
-                context_scale = scale_dict.get("context_scale")
-            else:
-                if inner is not None and hasattr(inner, "target_scale_logit"):
-                    target_scale = float(tf.nn.softplus(inner.target_scale_logit).numpy())
-                if inner is not None and hasattr(inner, "cell_scale_logit") and getattr(inner, "cell_scale_logit") is not None:
-                    cell_scale = float(tf.nn.softplus(inner.cell_scale_logit).numpy())
-        except Exception:
-            target_scale = None
-            cell_scale = None
-            context_scale = None
-
-        if len(self.train_data) == 4:
-            ctl_tr, drug_tr, cell_tr, y_tr = self.train_data
-            ctl_va, drug_va, cell_va, y_va = self.val_data
-            tr = eval_pcc_mse(
-                self.model,
-                ctl_tr,
-                drug_tr,
-                cell_tr,
-                y_tr,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            va = eval_pcc_mse(
-                self.model,
-                ctl_va,
-                drug_va,
-                cell_va,
-                y_va,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-        else:
-            ctl_tr, drug_tr, cell_tr, fp_tr, y_tr = self.train_data
-            ctl_va, drug_va, cell_va, fp_va, y_va = self.val_data
-            tr = eval_pcc_mse(
-                self.model,
-                ctl_tr,
-                drug_tr,
-                cell_tr,
-                y_tr,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                drug_fp=fp_tr,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-            va = eval_pcc_mse(
-                self.model,
-                ctl_va,
-                drug_va,
-                cell_va,
-                y_va,
-                self.loss_mask,
-                batch_size=self.batch_size,
-                max_eval=self.max_eval,
-                drug_fp=fp_va,
-                cell_mean=self.cell_mean,
-                y_is_residual=self.y_is_residual,
-            )
-
-        logs["pcc"] = tr["pcc"]
-        logs["val_pcc"] = va["pcc"]
-        logs["mse"] = tr["mse"]
-        logs["val_mse"] = va["mse"]
-
-        tr_unc_stats = None
-        va_unc_stats = None
-        try:
-            tr_unc_stats = self._uncertainty_stats(self.train_data)
-            va_unc_stats = self._uncertainty_stats(self.val_data)
-        except Exception:
-            tr_unc_stats = None
-            va_unc_stats = None
-
-        extra = []
-        for k in ["loss_full", "loss_cf", "cf_gap", "loss_hinge"]:
-            v = logs.get(k)
-            if v is not None:
-                try:
-                    extra.append(f"{k}={float(v):.4f}")
-                except Exception:
-                    pass
-        if target_scale is not None:
-            extra.append(f"target_scale={target_scale:.4f}")
-        if cell_scale is not None:
-            extra.append(f"cell_scale={cell_scale:.4f}")
-        if context_scale is not None:
-            extra.append(f"context_scale={context_scale:.4f}")
-        if tr_unc_stats is not None:
-            extra.append(f"tr_sigma_mean={tr_unc_stats['sigma_mean']:.4f}")
-            if tr_unc_stats.get("interval") is not None:
-                extra.append(
-                    f"tr_pcc_int=[{tr_unc_stats['interval']['pcc_low']:.4f},{tr_unc_stats['interval']['pcc_high']:.4f}]"
-                )
-                extra.append(
-                    f"tr_mse_int=[{tr_unc_stats['interval']['mse_low']:.4f},{tr_unc_stats['interval']['mse_high']:.4f}]"
-                )
-        if va_unc_stats is not None:
-            extra.append(f"val_mu_mean={va_unc_stats['mu_mean']:.4f}")
-            extra.append(f"val_mu_std={va_unc_stats['mu_std']:.4f}")
-            extra.append(f"val_logvar_mean={va_unc_stats['logvar_mean']:.4f}")
-            extra.append(f"val_logvar_min={va_unc_stats['logvar_min']:.4f}")
-            extra.append(f"val_logvar_max={va_unc_stats['logvar_max']:.4f}")
-            extra.append(f"val_sigma_mean={va_unc_stats['sigma_mean']:.4f}")
-            if va_unc_stats.get("interval") is not None:
-                extra.append(
-                    f"val_pcc_int=[{va_unc_stats['interval']['pcc_low']:.4f},{va_unc_stats['interval']['pcc_high']:.4f}]"
-                )
-                extra.append(
-                    f"val_mse_int=[{va_unc_stats['interval']['mse_low']:.4f},{va_unc_stats['interval']['mse_high']:.4f}]"
-                )
-        if len(extra) == 0:
-            print(f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f}")
-        else:
-            print(
-                f"Epoch {epoch+1}: pcc={tr['pcc']:.4f} mse={tr['mse']:.4f} "
-                f"val_pcc={va['pcc']:.4f} val_mse={va['mse']:.4f} " + " ".join(extra)
-            )
-
-
-class GATWrapper(keras.Model):
-    def __init__(self, gat_model, adj_matrix, use_drug_fp_embedding=False, fp_table=None):
-        super().__init__()
-        self.gat = gat_model
-        self.adj = tf.constant(adj_matrix, dtype=tf.float32)
-        self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
-        self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
-
-    def call(self, inputs, training=False):
-        if self.use_drug_fp_embedding:
-            ctl, drug_targets, cell_idx, drug_fp = inputs
-            cell_idx = tf.cast(cell_idx, tf.int32)
-            if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
-                drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-            return self.gat([self.adj, ctl, drug_targets, cell_idx, drug_fp], training=training)
-        ctl, drug_targets, cell_idx = inputs
-        cell_idx = tf.cast(cell_idx, tf.int32)
-        return self.gat([self.adj, ctl, drug_targets, cell_idx], training=training)
-
-
-class GATWrapperSparse(keras.Model):
-    def __init__(self, gat_model, edge_index, edge_weight, use_drug_fp_embedding=False, fp_table=None):
-        super().__init__()
-        self.gat = gat_model
-        self.edge_index = tf.constant(edge_index, dtype=tf.int32)
-        self.edge_weight = tf.constant(edge_weight, dtype=tf.float32)
-        self.use_drug_fp_embedding = bool(use_drug_fp_embedding)
-        self.fp_table = None if fp_table is None else tf.constant(fp_table, dtype=tf.float32)
-
-    def call(self, inputs, training=False):
-        if self.use_drug_fp_embedding:
-            ctl, drug_targets, cell_idx, drug_fp = inputs
-            cell_idx = tf.cast(cell_idx, tf.int32)
-            if self.fp_table is not None and drug_fp.dtype.is_integer and len(drug_fp.shape) == 1:
-                drug_fp = tf.gather(self.fp_table, tf.cast(drug_fp, tf.int32))
-            return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx, drug_fp], training=training)
-        ctl, drug_targets, cell_idx = inputs
-        cell_idx = tf.cast(cell_idx, tf.int32)
-        return self.gat([self.edge_index, self.edge_weight, ctl, drug_targets, cell_idx], training=training)
+def _eval_gat_pack(model, data_pack, batch_size, max_eval, loss_mask, cell_mean=None, y_is_residual=False):
+    if len(data_pack) == 4:
+        ctl, drug, cells, y_true = data_pack
+        drug_fp = None
+    else:
+        ctl, drug, cells, drug_fp, y_true = data_pack
+    return eval_pcc_mse(
+        model,
+        ctl,
+        drug,
+        cells,
+        y_true,
+        loss_mask,
+        batch_size=batch_size,
+        max_eval=max_eval,
+        drug_fp=drug_fp,
+        cell_mean=cell_mean,
+        y_is_residual=y_is_residual,
+    )
 
 
 """
@@ -631,7 +300,8 @@ def main():
     parser.add_argument("--max_samples", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--use_landmark_genes", action="store_true", default=True)
+    parser.add_argument("--use_landmark_genes", dest="use_landmark_genes", action="store_true", default=True)
+    parser.add_argument("--no-use_landmark_genes", dest="use_landmark_genes", action="store_false")
     parser.add_argument("--use_drug_fp_embedding", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--use_drug_embedding", dest="use_drug_fp_embedding", action="store_true")
     parser.add_argument("--no-use_drug_embedding", dest="use_drug_fp_embedding", action="store_false")
@@ -649,7 +319,7 @@ def main():
     parser.add_argument("--no_cell_embedding", action="store_true", default=False)
     parser.add_argument("--omnipath_consensus_only", action="store_true", default=False)
     parser.add_argument("--omnipath_is_directed_only", action="store_true", default=False)
-    parser.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell"], default="cold_drug")
+    parser.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell", "cold_target_pattern"], default="cold_drug")
     parser.add_argument("--split_modes", default="")
     parser.add_argument("--test_frac", type=float, default=0.2)
     parser.add_argument("--eval_drug_zero", action="store_true", default=True)
@@ -681,9 +351,7 @@ def main():
     if src not in sys.path:
         sys.path.insert(0, src)
 
-    from base_gnn import BaseLineGAT
-    from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, build_scheme_a_split_data
-
+    
     tf_path = os.path.join(root, "data/omnipath/omnipath_tf_regulons.csv")
     ppi_path = os.path.join(root, "data/omnipath/omnipath_interactions.csv")
     full_gene_path = os.path.join(root, "data/GSE92742_Broad_LINCS_gene_info.txt")
@@ -716,17 +384,32 @@ def main():
     if data is None:
         raise RuntimeError("load_rfa_data returned None")
 
-    adj_matrix, node_list, gene2idx, edge_index = build_combined_gnn(
-        tf_path=tf_path,
-        ppi_path=ppi_path,
-       # string_path=None,
-        target_genes=data["target_genes"],
-        confid_threshold=0.9,
-        directed=True,
-        omnipath_consensus_only=bool(args.omnipath_consensus_only),
-        omnipath_is_directed_only=bool(args.omnipath_is_directed_only),
-        symbol_to_entrez=data.get("symbol_to_entrez"),
-    )
+    if bool(args.sparse_gat):
+        adj_matrix, node_list, _gene2idx, edge_index, edge_weight = build_combined_gnn(
+            tf_path=tf_path,
+            ppi_path=ppi_path,
+           # string_path=None,
+            target_genes=data["target_genes"],
+            confid_threshold=0.9,
+            directed=True,
+            omnipath_consensus_only=bool(args.omnipath_consensus_only),
+            omnipath_is_directed_only=bool(args.omnipath_is_directed_only),
+            symbol_to_entrez=data.get("symbol_to_entrez"),
+            return_edge_weight=True,
+        )
+    else:
+        adj_matrix, node_list, _gene2idx, edge_index = build_combined_gnn(
+            tf_path=tf_path,
+            ppi_path=ppi_path,
+           # string_path=None,
+            target_genes=data["target_genes"],
+            confid_threshold=0.9,
+            directed=True,
+            omnipath_consensus_only=bool(args.omnipath_consensus_only),
+            omnipath_is_directed_only=bool(args.omnipath_is_directed_only),
+            symbol_to_entrez=data.get("symbol_to_entrez"),
+        )
+        edge_weight = None
     if len(node_list) != len(data["target_genes"]) or node_list[:50] != data["target_genes"][:50]:
         raise ValueError("Graph node_list 与表达 target_genes 顺序/长度不一致")
 
@@ -805,7 +488,7 @@ def main():
         test_trt = test_trt_full
 
         model_kwargs = dict(
-            num_genes=int(adj_matrix.shape[0]),
+            num_genes=int(len(node_list)),
             num_cells=num_cells,
             fingerprint_dim=fp_dim,
             hidden_dim=int(args.hidden_dim),
@@ -835,22 +518,28 @@ def main():
 
         if bool(args.sparse_gat):
             edge_index_np = edge_index.astype(np.int64)
-            src = edge_index_np[0]
-            dst = edge_index_np[1]
-            edge_weight = adj_matrix[dst, src].astype(np.float32)
-            n = int(adj_matrix.shape[0])
+            edge_weight_np = np.asarray(edge_weight, dtype=np.float32)
+            n = int(len(node_list))
             self_idx = np.arange(n, dtype=np.int64)
             edge_index_full = np.concatenate([edge_index_np, np.stack([self_idx, self_idx], axis=0)], axis=1)
-            edge_weight_full = np.concatenate([edge_weight, np.ones((n,), dtype=np.float32)], axis=0)
-            core = GATWrapperSparse(
+            edge_weight_full = np.concatenate([edge_weight_np, np.ones((n,), dtype=np.float32)], axis=0)
+            core = GraphModelWrapper(
                 model,
-                edge_index_full,
-                edge_weight_full,
+                graph_inputs=[edge_index_full, edge_weight_full],
+                graph_input_dtypes=[tf.int32, tf.float32],
                 use_drug_fp_embedding=bool(args.use_drug_fp_embedding),
                 fp_table=fp_table,
+                pass_training=True,
             )
         else:
-            core = GATWrapper(model, adj_matrix, use_drug_fp_embedding=bool(args.use_drug_fp_embedding), fp_table=fp_table)
+            core = GraphModelWrapper(
+                model,
+                graph_inputs=[adj_matrix],
+                graph_input_dtypes=[tf.float32],
+                use_drug_fp_embedding=bool(args.use_drug_fp_embedding),
+                fp_table=fp_table,
+                pass_training=True,
+            )
 
         trainer = DrugContrastiveTrainer(
             core_model=core,
@@ -866,35 +555,63 @@ def main():
             logvar_clip_max=float(args.logvar_clip_max),
         )
         trainer.compile(optimizer=keras.optimizers.Adam(learning_rate=5e-4), run_eagerly=bool(args.run_eagerly))
+        best_ckpt_dir = tempfile.mkdtemp(prefix=f"gat_best_{split_mode}_")
+        best_weights_path = os.path.join(best_ckpt_dir, "best_val_pcc.weights.h5")
 
         if bool(args.use_drug_fp_embedding):
             train_x = (train_ctl, train_drug, train_cells, train_fp)
             val_x = (test_ctl, test_drug, test_cells, test_fp)
-            pcc_cb = PCCCallback(
-                loss_mask=data["loss_mask"],
+            pcc_cb = GenericPCCCallback(
                 train_data=(train_ctl, train_drug, train_cells, train_fp, train_trt),
                 val_data=(test_ctl, test_drug, test_cells, test_fp, test_trt),
+                evaluate_pack_fn=lambda model_, pack, batch_size, max_eval: _eval_gat_pack(
+                    model_,
+                    pack,
+                    batch_size=batch_size,
+                    max_eval=max_eval,
+                    loss_mask=data["loss_mask"],
+                    cell_mean=cell_delta_mean,
+                    y_is_residual=residualize_target,
+                ),
                 batch_size=int(args.batch_size),
                 max_eval=2048,
-                cell_mean=cell_delta_mean,
-                y_is_residual=residualize_target,
+                extra_log_keys=["loss_full", "loss_cf", "cf_gap", "loss_hinge"],
+                scale_stats_fn=collect_gat_scale_stats,
+                uncertainty_stats_fn=build_uncertainty_stats_fn(data["loss_mask"]),
+                best_weights_path=best_weights_path,
             )
         else:
             train_x = (train_ctl, train_drug, train_cells)
             val_x = (test_ctl, test_drug, test_cells)
-            pcc_cb = PCCCallback(
-                loss_mask=data["loss_mask"],
+            pcc_cb = GenericPCCCallback(
                 train_data=(train_ctl, train_drug, train_cells, train_trt),
                 val_data=(test_ctl, test_drug, test_cells, test_trt),
+                evaluate_pack_fn=lambda model_, pack, batch_size, max_eval: _eval_gat_pack(
+                    model_,
+                    pack,
+                    batch_size=batch_size,
+                    max_eval=max_eval,
+                    loss_mask=data["loss_mask"],
+                    cell_mean=cell_delta_mean,
+                    y_is_residual=residualize_target,
+                ),
                 batch_size=int(args.batch_size),
                 max_eval=2048,
-                cell_mean=cell_delta_mean,
-                y_is_residual=residualize_target,
+                extra_log_keys=["loss_full", "loss_cf", "cf_gap", "loss_hinge"],
+                scale_stats_fn=collect_gat_scale_stats,
+                uncertainty_stats_fn=build_uncertainty_stats_fn(data["loss_mask"]),
+                best_weights_path=best_weights_path,
             )
 
         ds_train = tf.data.Dataset.from_tensor_slices((train_x, train_trt)).shuffle(20000, seed=42, reshuffle_each_iteration=True).batch(int(args.batch_size))
         ds_val = tf.data.Dataset.from_tensor_slices((val_x, test_trt)).batch(int(args.batch_size))
         trainer.fit(ds_train, epochs=int(args.epochs), callbacks=[pcc_cb], validation_data=ds_val, verbose=0)
+        if pcc_cb.best_epoch is not None and os.path.exists(best_weights_path):
+            trainer.load_weights(best_weights_path)
+            print(
+                f"Reloaded best checkpoint from epoch {pcc_cb.best_epoch} "
+                f"(val_pcc={pcc_cb.best_val_pcc:.4f}, val_mse={pcc_cb.best_val_mse:.4f})"
+            )
 
         train_metrics = eval_pcc_mse(
             trainer,
@@ -1017,6 +734,9 @@ def main():
                 "pairing_mode": str(args.pairing_mode),
                 "train_anchor_n": int(np.sum(train_anchor_mask)),
                 "test_anchor_n": int(np.sum(test_anchor_mask)),
+                "best_epoch": (None if pcc_cb.best_epoch is None else int(pcc_cb.best_epoch)),
+                "best_val_pcc": (None if pcc_cb.best_val_pcc is None else float(pcc_cb.best_val_pcc)),
+                "best_val_mse": (None if pcc_cb.best_val_mse is None else float(pcc_cb.best_val_mse)),
                 "test_ids_npy": test_ids_path,
                 "train_metrics": train_metrics,
                 "test_metrics": test_metrics,
@@ -1036,13 +756,13 @@ def main():
                 y_pred_test = trainer.predict([test_ctl, test_drug, test_cells], batch_size=256, verbose=0)
             y_true_test = np.asarray(test_trt, dtype=np.float32)
             y_pred_test = np.asarray(y_pred_test, dtype=np.float32)
-            y_pred_mean, y_pred_logvar = _split_mean_logvar(y_pred_test)
+            y_pred_mean, y_pred_logvar = split_mean_logvar(y_pred_test)
             if residualize_target and cell_delta_mean is not None:
                 cm = np.asarray(cell_delta_mean, dtype=np.float32)[test_cells]
                 y_true_test = y_true_test + cm
                 y_pred_mean = y_pred_mean + cm
 
-            sample_pcc, sample_mse = _samplewise_metrics(y_true_test, y_pred_mean, data["loss_mask"])
+            sample_pcc, sample_mse = samplewise_masked_metrics(y_true_test, y_pred_mean, data["loss_mask"])
 
             sanity = {}
             if sanity_drug_zero_metrics is not None:
@@ -1078,11 +798,14 @@ def main():
                 "logvar_clip_max": float(args.logvar_clip_max),
                 "train_anchor_n": int(np.sum(train_anchor_mask)),
                 "test_anchor_n": int(np.sum(test_anchor_mask)),
+                "best_epoch": (None if pcc_cb.best_epoch is None else int(pcc_cb.best_epoch)),
+                "best_val_pcc": (None if pcc_cb.best_val_pcc is None else float(pcc_cb.best_val_pcc)),
+                "best_val_mse": (None if pcc_cb.best_val_mse is None else float(pcc_cb.best_val_mse)),
                 "train_metrics": train_metrics,
                 "test_metrics": test_metrics,
             }
 
-            _save_npz(
+            save_npz(
                 out_path,
                 y_true=y_true_test.astype(np.float32),
                 y_pred=y_pred_mean.astype(np.float32),
@@ -1099,6 +822,8 @@ def main():
                 meta=meta_out,
             )
             print(f"Saved eval npz to: {out_path}")
+
+        shutil.rmtree(best_ckpt_dir, ignore_errors=True)
 
         all_results.append(
             {

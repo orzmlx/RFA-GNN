@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras import layers, models
 
 class DeepCOP(tf.keras.Model):
     """
@@ -119,17 +119,17 @@ class DeepCOP(tf.keras.Model):
         
         # 4. Output
         out = self.dense_out(x)
-        if self.predict_uncertainty:
-            logvar = self.dense_logvar(x)
+        logvar = self.dense_logvar(x) if self.predict_uncertainty else None
         
         # 5. Residual Connection (Optional but Recommended)
         if self.use_residual:
-            mean_out = ctl_expr + out
-        else:
-            mean_out = out
+            out = ctl_expr + out
         if self.predict_uncertainty:
-            return tf.stack([mean_out, logvar], axis=-1)
-        return mean_out
+            return tf.stack([out, logvar], axis=-1)
+        if self.use_residual:
+            return out
+        else:
+            return out
 
     def get_config(self):
         config = super(DeepCOP, self).get_config()

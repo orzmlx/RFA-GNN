@@ -1,0 +1,91 @@
+python src/train_gat_run_cf_drug_loss_control_context.py \
+  --epochs 50 \
+  --batch_size 32 \
+  --save_meta_json /Users/liuxi/Desktop/RFA_GNN/gat_wo_cell/gat_control_context.meta.json \
+  --save_eval_npz /Users/liuxi/Desktop/RFA_GNN/gat_wo_cell/gat_control_context.eval.npz \
+  --save_gat_weights /Users/liuxi/Desktop/RFA_GNN/gat_wo_cell/gat_control_context.weights.h5
+
+python /local/data1/liume102/rfa/src/train_gat_run_cf_drug_loss_control_context.py \
+  --root /local/data1/liume102/rfa \
+  --cell_line ALL \
+  --epochs 50 \
+  --batch_size 32 \
+  --use_landmark_genes \
+  --sparse_gat \
+  --ctl_pair_k 3 \
+  --pairing_mode unique_trt_reuse_ctl \
+  --hidden_dim 64 \
+  --num_heads 4 \
+  --dropout 0.2 \
+  --attention_layers 4 \
+  --per_node_head \
+  --test_frac 0.2 \
+  --eval_drug_zero \
+  --cf_mode zero \
+  --cf_lambda 1.0 \
+  --cf_margin 0.2 \
+  --save_gat_weights /local/data1/liume102/rfa/gat_wo_cell/gat_control_context_unique_trt_reuse_ctl.weights.h5 \
+  --save_meta_json /local/data1/liume102/rfa/gat_wo_cell/gat_control_context_unique_trt_reuse_ctl.meta.json \
+  --save_eval_npz /local/data1/liume102/rfa/gat_wo_cell/gat_control_context_unique_trt_reuse_ctl.eval.npz \
+
+
+ python src/train_gat_run_cf_drug_loss_hybrid_context.py \
+  --root /Users/liuxi/Desktop/RFA_GNN \
+  --cell_line ALL \
+  --epochs 50 \
+  --batch_size 32 \
+  --hidden_dim 64 \
+  --num_heads 4 \
+   --ctl_pair_k 3 \
+  --pairing_mode unique_trt_reuse_ctl \
+  --use_landmark_genes \
+  --attention_layers 4 \
+  --dropout 0.2 \
+  --cf_mode zero \
+  --cf_lambda 1.0 \
+  --cf_margin 0.2 \
+  --split_modes warm,cold_drug,cold_cell \
+  --save_gat_weights /local/data1/liume102/rfa/cell_hybrid/gat_control_context_unique_trt_reuse_ctl.weights.h5 \
+  --save_meta_json /local/data1/liume102/rfa/cell_hybrid/gat_control_context_unique_trt_reuse_ctl.meta.json \
+  --save_eval_npz /local/data1/liume102/rfa/cell_hybrid/gat_control_context_unique_trt_reuse_ctl.eval.npz \
+
+
+python src/train_gat_run_cf_drug_loss_context_attention.py \
+  --root /Users/liuxi/Desktop/RFA_GNN \
+  --cell_line ALL \
+  --epochs 50 \
+  --batch_size 32 \
+  --hidden_dim 64 \
+  --num_heads 4 \
+  --attention_layers 4 \
+  --dropout 0.2 \
+  --split_modes warm,cold_drug,cold_cell \
+  --cf_mode zero \
+  --cf_lambda 1.0 \
+  --cf_margin 0.15
+
+  cd /local/data1/liume102/rfa && python -u src/train_gat_run_cf_drug_loss_context_attention_no_cellid.py \
+  --root /local/data1/liume102/rfa \
+  --cell_line ALL \
+  --epochs 50 \
+  --batch_size 32 \
+  --use_landmark_genes \
+  --ctl_pair_k 3 \
+  --pairing_mode unique_trt_reuse_ctl \
+  --hidden_dim 64 \
+  --num_heads 4 \
+  --dropout 0.2 \
+  --attention_layers 4 \
+  --per_node_head \
+  --split_modes warm,cold_drug,cold_cell \
+  --test_frac 0.2 \
+  --cf_mode zero \
+  --cf_lambda 1.0 \
+  --cf_margin 0.15 \
+  --eval_cf_mode zero \
+  --save_gat_weights /local/data1/liume102/rfa/cell_context/gat_control_context_unique_trt_reuse_ctl.weights.h5 \
+  --save_meta_json /local/data1/liume102/rfa/cell_context/gat_control_context_unique_trt_reuse_ctl.meta.json \
+  --save_eval_npz /local/data1/liume102/rfa/cell_context/gat_control_context_unique_trt_reuse_ctl.eval.npz \
+
+
+

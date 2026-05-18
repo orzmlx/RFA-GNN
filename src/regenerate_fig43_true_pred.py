@@ -123,9 +123,9 @@ def main():
         (
             "DeepCOP",
             {
-                "warm": os.path.join(root, "deepcop_res", "deepcop_978_allcells_pred.warm.npz"),
-                "cold_drug": os.path.join(root, "deepcop_res", "deepcop_978_allcells_pred.cold_drug.npz"),
-                "cold_cell": os.path.join(root, "deepcop_res", "deepcop_978_allcells_pred.cold_cell.npz"),
+                "warm": os.path.join(root, "results", "deepcop.pred.warm.npz"),
+                "cold_drug": os.path.join(root, "results", "deepcop.pred.cold_drug.npz"),
+                "cold_cell": os.path.join(root, "results", "deepcop.pred.cold_cell.npz"),
             },
         ),
         (
@@ -139,9 +139,9 @@ def main():
         (
             "CAGNN",
             {
-                "warm": os.path.join(root, "gat_res", "gat_cf_drug_loss_unique_trt_reuse_ctl.eval.warm.npz"),
-                "cold_drug": os.path.join(root, "gat_res", "gat_cf_drug_loss_unique_trt_reuse_ctl.eval.cold_drug.npz"),
-                "cold_cell": os.path.join(root, "gat_res", "gat_cf_drug_loss_unique_trt_reuse_ctl.eval.cold_cell.npz"),
+                "warm": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.warm.npz"),
+                "cold_drug": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.cold_drug.npz"),
+                "cold_cell": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.cold_cell.npz"),
             },
         ),
     ]

@@ -1,136 +1,223 @@
 \chapter{Methodology}
 
 \section{Target}
-This thesis focuses on drug perturbation prediction. Let $G$ be the number of genes in the selected gene set. Assuming that a single paired sample consists of a matched control profile $x_{\mathrm{ctl}} \in \mathbb{R}^{G}$ and a treated profile $x_{\mathrm{trt}} \in \mathbb{R}^{G}$, the supervised training target is defined as their difference:
+This thesis studies prediction of gene expression changes after drug treatment. Let $G$ be the number of genes in the selected gene set. For each paired sample, the input includes a matched control profile $x_{\mathrm{ctl}}$ and a treated profile $x_{\mathrm{trt}}$. The training target is their difference:
 \begin{equation}
-y = x_{\mathrm{trt}} - x_{\mathrm{ctl}} \in \mathbb{R}^{G}.
+y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}.
 \end{equation}
-Accordingly, the objective of our models is to output a predicted response vector $\hat{y} \in \mathbb{R}^{G}$.
+This definition makes the target represent the change after treatment rather than the full expression state of the cell. It is intended to reduce the influence of the baseline cell state that is already reflected in the matched control profile, so the model can focus more directly on the effect of the drug. When treatment and control are measured in a similar setting, this subtraction can also reduce some shared technical noise, such as batch or plate effects.
+The model predicts a response vector $\hat{y}$.
 
-\noindent When processed in a mini-batch of size $B$, the target tensor has the shape $Y \in \mathbb{R}^{B \times G}$ and the corresponding model prediction has the shape $\hat{Y} \in \mathbb{R}^{B \times G}$.
+\noindent For a mini batch of size $B$, the same target definition is applied sample by sample.
 
 \section{Inputs}
-\noindent Each training instance combines three main components: a matched control profile, a drug representation, and optional cell context information. To ensure consistency across different model variants, these inputs are mapped row by row to individual paired conditions and aligned by gene order across the control profile, the drug target vector, and the final predicted response.
+\noindent A matched control profile, a drug representation, and cell related information are used as the three main inputs. These inputs use the same gene order, so the control vector, the drug vector, the graph matrix, and the predicted response all refer to the same gene positions.
 
 \subsection{Control data}
-The primary sample-level input is the matched control profile $x_{\mathrm{ctl}} \in \mathbb{R}^{G}$. In simple terms, this vector shows the natural, baseline state of the cell before any drug is applied. Supplying this measurement as a direct input is important because the same drug can act very differently depending on the starting condition of the cell. A drug's effect relies heavily on which genes are already turned on and which biological pathways are currently active. By looking at this initial baseline, the neural network can tune its predictions to account for the natural differences between various cell types and experiments.
+The matched control profile $x_{\mathrm{ctl}}$ shows the baseline state of the cell before drug treatment. It is important because the same drug can produce different responses when the starting state is different. Some genes may already be active, while others may be weak. By using the control profile directly, the model can base its prediction on the measured state of the sample instead of relying on the drug input alone.
 
-\noindent In our main setup, we use $G=978$ landmark genes, meaning each control sample is represented as a 978-dimensional vector of continuous numbers. For a mini-batch of size $B$, the control input tensor has the shape $X_{\mathrm{ctl}} \in \mathbb{R}^{B \times G}$. As illustrated in Figure~\ref{fig:ctl_node_projection}, these measured values map directly to the nodes in our graph model. The network takes the initial scalar value for each gene and projects it to serve as the starting mathematical feature for that specific gene node. This ensures that the graph network bases its early calculations on real biological measurements before the nodes start sharing information with each other.
+\noindent In the main setup, $G=978$ landmark genes are used, so each control sample is a vector of continuous expression values. As shown in Figure~\ref{fig:ctl_node_projection}, each gene value is mapped to the corresponding graph node and projected to the hidden dimension. This gives every node a starting feature based on the measured control expression.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/per_node_ctl_input.png}
-    \caption{Control input and its node wise projection. Each sample is represented as a 978 dimensional gene expression vector aligned to the gene order. The same shared projection layer maps each gene wise scalar input to a 64 dimensional node feature.}
+    \caption[Control Input Projection]{Control input and its projection to graph nodes. Each sample is represented as a 978 dimensional gene expression vector aligned to the gene order. The same shared projection layer maps the scalar input of each gene to a 64 dimensional node feature.}
     \label{fig:ctl_node_projection}
 \end{figure}
 
 \subsection{Drug target}
-The primary drug input, denoted as $x_{\mathrm{drug}} \in \mathbb{R}^{G}$, is a binary target vector aligned to the strict gene order. An entry in this vector is set to one if the corresponding gene is an annotated target of the drug, and zero otherwise. While extra molecular fingerprint vectors could be supplemented in certain model variants, the main benchmark in this thesis solely relies on this target-based vector. For a mini-batch, the drug input spans a shape of $X_{\mathrm{drug}} \in \mathbb{R}^{B \times G}$.
+The main drug input is a binary target vector $x_{\mathrm{drug}}$. Each entry is one when the corresponding gene is a known target of the drug, and zero otherwise. Some studies use richer drug features, but the main experiments in this thesis use only this target based vector.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/per_node_drug_input.png}
-    \caption{Drug target input and its node wise projection. Each sample is represented as a binary target vector aligned to the gene order. After adding a singleton feature dimension, the same shared projection layer maps each gene wise scalar input to a 64 dimensional node feature.}
+    \caption[Drug Target Projection]{Drug target input and its projection to graph nodes. Each sample is represented as a binary target vector aligned to the gene order. After adding one extra feature dimension, the same shared projection layer maps the scalar input of each gene to a 64 dimensional node feature.}
     \label{fig:drug_target_projection}
 \end{figure}
 
 \subsection{Biological graph}
-The proposed architecture integrates prior biological knowledge via a directed graph $\mathcal{G}=(\mathcal{V},\mathcal{E})$ derived from the OmniPath database. Given that each node corresponds to a gene in the selected set, the absolute bounds of the vertices equate to the constant $G$. The graph is formalized as a directed adjacency matrix $A \in \mathbb{R}^{G \times G}$.
+The proposed architecture uses a directed biological graph $\mathcal{G}=(\mathcal{V},\mathcal{E})$ derived from the OmniPath database. Each node represents one gene, and each directed edge represents a known effect from one gene to another. If gene $u$ can affect gene $v$, the graph includes a directed edge from $u$ to $v$. The same graph can also be written as an adjacency matrix $A$.
 
-\noindent This adjacency matrix efficiently encodes both the existence and the regulatory sign of an interaction. Specifically, the column index denotes the source gene ($u$) and the row index denotes the target gene ($v$). If gene $u$ stimulates gene $v$, the entry $A_{vu}$ is positive; if it acts as an inhibitor, the entry is negative; and if no regulatory edge exists between them, the connection remains zero.
+\noindent The graph stores not only whether two genes are connected, but also whether the effect is activating or inhibitory. Here gene $u$ is the source node and gene $v$ is the target node. If gene $u$ activates gene $v$, the edge from $u$ to $v$ is assigned a positive sign. If gene $u$ inhibits gene $v$, the edge is assigned a negative sign. In this way, the graph tells the model not only where information can flow, but also whether the incoming signal should increase or oppose the current state of the target gene.
+
+\noindent This sign can be written as
+\begin{equation}
+s_{u \rightarrow v}=
+\begin{cases}
+1, & \text{if gene } u \text{ activates gene } v,\\
+-1, & \text{if gene } u \text{ inhibits gene } v.
+\end{cases}
+\end{equation}
+The message from gene $u$ to gene $v$ is then adjusted by this sign:
+\begin{equation}
+m_{u \rightarrow v}= s_{u \rightarrow v}\, h_u.
+\end{equation}
+Here $h_u$ is the current representation of gene $u$. A positive sign keeps the message in the same direction, while a negative sign reverses it.
 
 \subsection{Cell information}
-Inspired by recent context-aware perturbation models like GSNN and XPert~\cite{evans2024gsnn,guo2026xpert}, this study considers two separate paradigms to incorporate cellular state and metadata to improve prediction accuracy.
 
-\noindent The first approach utilizes a cell identity embedding, which assigns a single learned vector in $\mathbb{R}^{F}$ to a specific cell line. While this fixed-label design is easy to optimize and serves as our default benchmark configuration, it indiscriminately broadcasts the identical representation to all gene nodes across all samples originating from that cell line.
+\noindent The first approach uses a cell identity embedding. This is a very direct way to tell the model which cell line the sample comes from. Each cell line is assigned one learned vector, so all samples from the same cell line share the same representation. This can work well because cell background has a strong effect on gene expression. In other words, knowing the cell line already gives the model important information about the likely response pattern. At the same time, this also means that the model can rely heavily on the cell identity itself. The limitation is that samples from the same cell line are treated as if they were in the same state, even when their measured baseline profiles are different.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/cellid_input.png}
-    \caption{Cell identity input and its embedding. Each cell line name is first mapped to an integer index by a label encoder, and then a learnable embedding layer maps the index to a 64 dimensional cell representation. The same cell embedding is shared by all samples from the same cell line.}
+    \caption[Cell Identity Embedding]{Cell identity input and its embedding. Each cell line name is first mapped to an integer index by a label encoder, and then a learnable embedding layer maps the index to a 64 dimensional cell representation. The same cell embedding is shared by all samples from the same cell line.}
     \label{fig:cellid_embedding}
 \end{figure}
 
-\noindent The second approach leverages a control-derived cell context. This relies on the premise that the matched control profile serves as a direct observation of the sample before the drug perturbation is introduced. Because its expression pattern intrinsically captures the sample-specific baseline state, reflecting active genes, silent pathways, and intra-cell-line variations, the full control profile $x_{\mathrm{ctl}}$ can be dynamically encoded rather than treating the cell state as a static label. Formally, $x_{\mathrm{ctl}}$ is normalized and processed through a latent encoder to yield a robust, sample-specific context vector $c_{\mathrm{ctx}} \in \mathbb{R}^{F}$.
+\noindent Another approach uses cell context. Cell context means the state of one sample before the drug is applied. This information can be taken from the matched control profile~\cite{evans2024gsnn,guo2026xpert}, because the control profile is measured before treatment and shows which genes are already high or low in that sample. In this sense, it gives a snapshot of the sample before treatment. Even samples from the same cell line can have different baseline states, and these differences appear in the control expression values. Instead of using a fixed cell label, the model reads the full control profile $x_{\mathrm{ctl}}$ and converts it into a sample specific context vector $c_{\mathrm{ctx}}$.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/cell_context.png}
-    \caption{Control derived cell context. The control profile is normalized and encoded into a sample specific context vector. This context summarizes the baseline expression state of the sample before drug perturbation.}
+    \caption[Control Derived Cell Context]{Control derived cell context. The control profile is normalized and encoded into a sample specific context vector. This context summarizes the baseline expression state of the sample before drug perturbation.}
     \label{fig:cell_context}
 \end{figure}
 
-\noindent To maximize the advantages of both designs, we introduce a hybrid setting that fuses both sources of cell information. The fixed cell identity is first mapped to its learned embedding $c_{\mathrm{id}} \in \mathbb{R}^{F}$. A final sample-level cell representation is then constructed by fusing it with the dynamic context:
-\begin{equation}
-c_{\mathrm{fused}} = \alpha_{\mathrm{id}} c_{\mathrm{id}} + \alpha_{\mathrm{ctx}} c_{\mathrm{ctx}},
-\end{equation}
-where $\alpha_{\mathrm{id}}$ is a learnable scalar weight that dictates the trade-off, and $\alpha_{\mathrm{ctx}} = 1 - \alpha_{\mathrm{id}}$. This unified formulation seamlessly combines a coarse prior for the general cell type with a highly sample-specific correction dictated by the observed baseline expression measurements.
+\noindent In the graph model used later in this thesis, the cell context vector $c_{\mathrm{ctx}}$ is copied to all $G$ gene nodes and added to their initial node features. This lets the graph network start from node features that reflect the current sample state before perturbation~\cite{guo2026xpert}.
 
-\begin{figure}[H]
+\subsection{Summary}
+\noindent Many studies in perturbation prediction use extra input features, such as molecular fingerprints, gene ontology features, or mutation profiles~\cite{woo2020deepcop,guo2026xpert,Rogers2010ECFP,Ashburner2000GO}. The main experiments in this thesis use a simpler input setting. All models use the matched control profile and the drug representation. The proposed model also uses cell context information, while the two baselines do not.
+
+\noindent This simpler design makes the comparison easier to follow. With fewer extra inputs, the comparison focuses more directly on the matched control profile, the drug input, and the added cell context.
+
+\section{Base model}
+\subsection{Overview}
+Figure~\ref{fig:base_model_structure} shows the baseline model. It is a fully connected design~\cite{woo2020deepcop}, without using a biological interaction graph. The output layer predicts a mean response and an uncertainty related value for each gene.
+
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.79\linewidth]{figures/Hybrid_cell_context.png}
-    \caption{Hybrid cell context fusion. The cell identity embedding and the control derived context are scaled and combined into one fused sample level representation.}
-    \label{fig:hybrid_cell_context}
+    \includegraphics[width=0.63\linewidth]{figures/base_model_structure.png}
+    \caption[Baseline Model Structure]{Structure of the baseline model. In the reported experiments, the actual baseline inputs are the control gene expression and the drug target input. The circles represent hidden units in dense layers, and the arrows represent learned dense connections. The dotted vertical marks indicate omitted repeated units. The blue output boxes labeled $\mu$ denote mean predictions for each gene, and the pink output boxes labeled $\log \sigma^{2}$ denote log variance predictions for each gene.}
+    \label{fig:base_model_structure}
 \end{figure}
 
-\noindent Following this fusion step, the resulting vector $c_{\mathrm{fused}}$ is broadcast symmetrically to all $G$ gene nodes and injected into their initial node features. This mechanism allows the graph network to synthesize both stable global cell identity constraints and real-time biological state fluctuations simultaneously---an adaptation of context-aware designs successfully tailored for a gene-graph prediction setting~\cite{evans2024gsnn,guo2026xpert}.
+\noindent The baseline model uses the control profile and drug input introduced above. It does not use the additional cell context input used by CAGNN. The two input vectors are concatenated:
+\begin{equation}
+z = [x_{\mathrm{ctl}} \Vert x_{\mathrm{drug}}].
+\end{equation}
+For a mini batch, the same input is written as $Z$. The model then applies two fully connected blocks. Each block uses a dense layer, batch normalization, ReLU, and dropout. The output stage predicts two vectors of length $G$, namely a mean vector $\mu$ and a log variance vector $\log \sigma^{2}$. If these two vectors are stacked gene by gene, the final output for one sample can be written as
+\begin{equation}
+\left[\mu, \log \sigma^{2}\right].
+\end{equation}
+For a full mini batch, the same output structure is used for all samples.
 
-\subsection{Summary of Inputs}
-\noindent While many perturbation prediction studies incorporate richer omics-level descriptors---such as Morgan molecular fingerprints, gene ontology features, or mutation profiles~\cite{woo2020deepcop,evans2024gsnn,guo2026xpert}---the input features in our main experiments are intentionally restricted. Across the benchmark, all models strictly ingest the matched control profile, the binary drug representation, and the optional cell contextual embeddings.
+\subsection{Loss function}
+The baseline model predicts both a mean response and a log variance. The prediction target is the same response vector used in the thesis,
+\begin{equation}
+y = x_{\mathrm{trt}} - x_{\mathrm{ctl}},
+\end{equation}
+and the base error term is a Gaussian negative log likelihood. The likelihood term is
+\begin{equation}
+\mathcal{L}_{\mathrm{nll}}^{\mathrm{base}}=\frac{1}{BG}\sum_{i=1}^{B}\sum_{g=1}^{G}\frac{1}{2}\left[\log \sigma_{ig}^{2}+\frac{\left(y_{ig}-\mu_{ig}\right)^{2}}{\sigma_{ig}^{2}}\right].
+\end{equation}
+where $B$ is the mini batch size. Here $\mu_{ig}$ is the predicted mean response and $\sigma_{ig}^{2}$ is the predicted variance for gene $g$ in sample $i$.
 
-\noindent This minimalist design serves two vital purposes. First, it greatly enhances interpretability: we can clearly evaluate whether the predicted response originates from the measured baseline state, the localized perturbation target, or the broader cellular environment. Second, it enforces a fairer comparative baseline. By using an identical, limited input set, any observed performance improvements are more likely to reflect the intrinsic strength of the model architecture itself, rather than arbitrary gains from external side-information.
+\noindent The baseline also includes the same Pearson correlation term computed separately for each sample as used in CAGNN,
+\begin{equation}
+\mathcal{L}_{\mathrm{pcc}}^{\mathrm{base}} = 1-\frac{1}{B}\sum_{i=1}^{B}\mathrm{corr}\!\left(y_{i},\mu_{i}\right),
+\end{equation}
+so the final objective is
+\begin{equation}
+\mathcal{L}_{\mathrm{base}}=\mathcal{L}_{\mathrm{nll}}^{\mathrm{base}}+\lambda_{\mathrm{pcc}}\mathcal{L}_{\mathrm{pcc}}^{\mathrm{base}}.
+\end{equation}
+In the reported baseline setting, a fixed PCC weight is used. This keeps the baseline loss aligned with the proposed model, because both models are trained to reduce prediction error for each gene while also preserving the overall response pattern across genes.
+
+\subsection{Training settings}
+The baseline model is trained on the same paired perturbation data and split settings used for the proposed model. Optimization uses mini batches and Adam. Table~\ref{tab:base_model_config} summarizes the baseline configuration used in the experiments.
+\begin{table}[htbp]
+    \centering
+    \caption[Baseline Model Configuration]{Main configuration of the baseline model.}
+    \label{tab:base_model_config}
+    \begin{tabular}{ll}
+        \hline
+        Setting & Value \\
+        \hline
+        Optimizer & Adam \\
+        Learning rate & $5 \times 10^{-4}$ \\
+        Batch size & 64 \\
+        Training epochs & 50 \\
+        Hidden dimension & 1024 \\
+        Number of dense blocks & 2 \\
+        Dropout & 0.2 \\
+        PCC weight $\lambda_{\mathrm{pcc}}$ & 5 \\
+        Output & $\mu$ and $\log \sigma^2$ \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\noindent The baseline hyperparameters follow the original model setting as closely as possible, together with a small amount of task specific adjustment. A separate validation split was not introduced for systematic tuning, so these values should be read as practical benchmark settings rather than as fully optimized choices.
+
+\section{GSNN baseline}
+GSNN~\cite{evans2024gsnn} is the graph based baseline in this thesis. It is evaluated on the same paired perturbation data and the same biological graph as the proposed model, but the computation is different.
+
+\subsection{Overview}
+\noindent GSNN uses only the matched control profile and the drug input vector,
+\begin{equation}
+x_{\mathrm{GSNN}} = [x_{\mathrm{ctl}}; x_{\mathrm{drug}}].
+\end{equation}
+This baseline does not use the extra cell context input used by the proposed model. The training target is the response vector
+\begin{equation}
+y = x_{\mathrm{trt}} - x_{\mathrm{ctl}},
+\end{equation}
+so the model predicts one response value for each gene rather than the raw treated expression profile.
+
+\noindent The implementation builds a graph with several node groups. For each gene, there is one control input node, one drug input node, one internal function node, and one output node. The control and drug inputs connect to the corresponding function node. The function nodes are connected by the biological graph. Each function node then connects to one output node, which produces the predicted response for that gene.
+
+\noindent The internal update rule is not the same as the graph attention mechanism used in the proposed model. In this model, GSNN uses sparse linear updates inside residual blocks, and the graph decides which connections are allowed. Information from incoming edges is collected into hidden channels of each function node, processed by a nonlinearity and an MLP applied separately to each node, and then sent back to the outgoing edges. GSNN uses the graph during message passing, but it does not learn a separate importance weight for every edge.
+
+\noindent The output of GSNN is a prediction vector with one response value for each gene and with the same dimension as $y$. Compared with the proposed model, it does not include control derived cell context or graph attention based message passing.
+
+\subsection{Loss function}
+\noindent GSNN is trained with a response prediction loss only. If the prediction for sample $i$ is $\hat{y}_{i}$ and the target is $y_{i}$, the loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{GSNN}}=\frac{1}{BG}\sum_{i=1}^{B}\sum_{g=1}^{G}(y_{ig}-\hat{y}_{ig})^{2}.
+\end{equation}
+\noindent This objective only trains the response prediction itself. It does not include a separate uncertainty term, a PCC term, or a counterfactual hinge term.
+
+\subsection{Training settings}
+\noindent GSNN is trained on the same paired perturbation data and under the same split settings as the proposed model. The same response target $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ is used. Optimization uses mini batches and standard gradient based training. The implementation is adapted from the code released by the original authors, while the input interface is modified to match the data modalities available in this thesis. This keeps the comparison focused on the model design rather than on differences in the data pipeline.
 
 \section{Proposed model}
 \subsection{Overview}
-Figure~\ref{fig:proposed_model} shows the proposed model. The model uses a graph attention network on a biological interaction graph. It predicts one response value for each gene.
+Figure~\ref{fig:proposed_model} shows the proposed model. It uses a graph attention network on a biological interaction graph and predicts one response value for each gene.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\linewidth]{figures/proposed_model.png}
-    \caption{Structure of the proposed model. The model combines the biological interaction graph, the control profile, and drug target information to predict the gene wise response.}
+    \caption[Proposed Model Structure]{Structure of the proposed model. The colored blocks at the top left denote the three input types, namely drug target, cell related input, and control expression. The circles in the graph denote gene nodes, and the directed arrows denote biological edges along which messages can pass. The dashed orange boxes beside the nodes show learned node feature vectors. The larger dashed orange box at the top right shows the readout head with two outputs, where $\mu$ is the predicted mean and $\log \sigma^{2}$ is the predicted log variance.}
     \label{fig:proposed_model}
 \end{figure}
 
-\noindent The proposed model predicts one response value for each gene. It uses a graph attention network on a biological interaction graph. The graph, node features, and cell information are introduced in the input section above.
+\noindent The graph, node features, and cell information are introduced in the input section above. The model combines these inputs to predict the response profile. The same uncertainty aware graph backbone is used throughout the CAGNN analyses in this thesis. The ablation analysis changes how cell information is provided, but the model still predicts both a mean response and an uncertainty value for each gene.
 
 \subsection{Node features}
-The proposed model starts from one node per gene. The control profile provides one scalar input for each node. The drug target vector also provides one scalar input for each node. These two inputs are projected to a hidden dimension $F$. In the current main setting, $F=64$. The initial node representation matrix is
+The proposed model starts with one node per gene. The control profile provides one scalar input for each node, and the drug target vector provides another scalar input. These inputs are projected to a hidden dimension $F$. The initial node representation matrix is denoted by $H^{(0)}$.
+\noindent The control input and the drug target input are embedded separately, and the cell context is copied to all $G$ nodes before it is added:
 \begin{equation}
-H^{(0)} \in \mathbb{R}^{G \times F}.
+H^{(0)} = \phi_{\mathrm{ctl}}(x_{\mathrm{ctl}}) + \phi_{\mathrm{drug}}(x_{\mathrm{drug}}) + \mathbf{1}_{G} c_{\mathrm{ctx}}^{\top}.
 \end{equation}
-\noindent More precisely, the control input and the drug target input are embedded separately, and the sample level fused cell context is added as an extra term:
-\begin{equation}
-H^{(0)} = \phi_{\mathrm{ctl}}(x_{\mathrm{ctl}}) + \phi_{\mathrm{drug}}(x_{\mathrm{drug}}) + c_{\mathrm{fused}}.
-\end{equation}
+\noindent Here $\mathbf{1}_{G}$ is the all ones vector, so $\mathbf{1}_{G} c_{\mathrm{ctx}}^{\top}$ repeats the same context vector for every gene node.
 
-\noindent For a mini batch, the node feature tensor becomes
-\begin{equation}
-H^{(0)} \in \mathbb{R}^{B \times G \times F}.
-\end{equation}
-\noindent When cell information is added at this stage, it changes what each node representation contains. It changes the sample specific state carried by each gene node before message passing starts.
+\noindent For a mini batch, the same node feature construction is applied to every sample.
+\noindent When cell information is added here, each gene node starts with control and drug signals together with information about the current cell state. Message passing therefore begins from a representation that already reflects the sample context.
 
 \subsection{Graph multi-head attention block}
-\noindent The backbone contains $L$ graph attention layers. In the main benchmark setting, $L=4$. Each layer uses multi head attention with $K=4$ heads. Since the hidden width is $F=64$, each head outputs $64/4=16$ features and the concatenated output returns to dimension 64. In the final model, cell information is not inserted directly into the attention score. Instead, the fused cell context is added to the node features before message passing starts. The attention block itself then follows the standard GAT style computation.
+\noindent The backbone uses several graph attention layers with multi head attention. The hidden width is divided evenly across the heads, and the concatenated output returns to the original hidden dimension. Cell information is not inserted directly into the attention score. Instead, the cell context vector is added to the node features before message passing starts.
 
-\noindent For each head, the node features are first projected linearly. The attention score for an edge is then computed from the transformed source and target node representations. A leaky ReLU is applied to this score, and the graph structure is used as a mask so that only existing edges receive nonzero attention. Softmax normalization is then applied over the neighbors of each node. The normalized attention weights are used to compute a weighted sum of neighbor features. After all heads are computed, their outputs are concatenated and passed through the activation function.
+\noindent The general GAT computation and the role of residual connections, layer normalization, and the small two layer block after attention are introduced in the theory chapter. In the proposed model, each block uses standard multi head graph attention for neighbor aggregation, followed by dropout, residual addition, and layer normalization. The small two layer block in \eqref{eq:ffn_block} is then applied to each node, followed again by dropout, residual addition, and layer normalization.
 
-\noindent After the multi head attention update, the model applies dropout, a residual connection, and layer normalization. It then applies a position wise feed forward network, followed by a second dropout, a second residual connection, and a second layer normalization. The position wise feed forward network follows the Transformer design introduced by Vaswani et al.~\cite{vaswani2017attention}. It consists of two linear transformations with a ReLU activation in between. For a node representation $h_{v}$, this is computed as
-\begin{equation}
-\mathrm{FFN}(h_{v}) = W_{2} \max(0, W_{1} h_{v} + b_{1}) + b_{2}.
-\end{equation}
-Attention mixes information across connected nodes, while the feed forward network refines each node representation separately.
-
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.70\linewidth]{figures/proposal_model_attneion.png}
-    \caption{Flow of one graph attention block used in the proposed model. The input node features are linearly projected, standard graph attention scores are computed and normalized with softmax, and the multi head output is followed by dropout, residual addition, layer normalization, and a position wise feed forward network.}
+    \caption[Graph Attention Block]{Flow of one graph attention block used in the proposed model. The arrows show the forward computation path. The lower branch expands the attention sublayer, where Linear projection applies the learned matrix $W$ to the input node features, Attention score computes pairwise scores, and Softmax normalizes them across neighbors. The labels Self attention and Neighbor attention in this figure refer to the target node contribution and the neighbor contribution inside graph attention. They should be read as self loop and neighbor messages, not as Transformer self attention over a sequence. The upper branch shows the full block. Dropout removes part of the hidden features during training. Add \& Norm means residual addition followed by layer normalization. Feed Forward denotes the small two layer block introduced in Eq.~\ref{eq:ffn_block}, which is applied to each node.}
     \label{fig:gat_flow}
 \end{figure}
 
-\noindent Figure~\ref{fig:gat_flow} shows the computation in one graph block. The block uses the node representations prepared in the input stage, which already contain the fused sample context. It then applies standard graph attention for neighbor aggregation. When several graph attention layers are stacked, the output of one block becomes the input to the next block.
+\noindent Figure~\ref{fig:gat_flow} shows the computation in one graph block. The block uses the node representations prepared in the input stage, which already contain the sample context. It then applies standard graph attention for neighbor aggregation. In this figure, the downward arrows into the two Add \& Norm modules denote the residual shortcuts that add the block input back to the sublayer output before normalization. When several graph attention layers are stacked, the output of one block becomes the input to the next block.
 
 \subsection{Output layer}
-\noindent After the last graph layer, each node has a final hidden vector $h_{v}^{(L)} \in \mathbb{R}^{F}$. The output layer uses two parallel linear readouts. One predicts the mean response,
+\noindent After the last graph layer, each node has a final hidden vector $h_{v}^{(L)}$. The output layer uses two parallel linear readouts. One predicts the mean response,
 \begin{equation}
 \mu_{v}=w_{\mu}^{\top} h_{v}^{(L)} + b_{\mu},
 \end{equation}
@@ -138,54 +225,37 @@ and the other predicts a log variance term,
 \begin{equation}
 \log \sigma_{v}^{2}=w_{\sigma}^{\top} h_{v}^{(L)} + b_{\sigma},
 \end{equation}
-where $w_{\mu}, w_{\sigma} \in \mathbb{R}^{F}$ and $b_{\mu}, b_{\sigma} \in \mathbb{R}$. Stacking these outputs over all genes gives the full mean prediction $\mu \in \mathbb{R}^{G}$ and the full log variance prediction $\log \sigma^{2} \in \mathbb{R}^{G}$.
+where $w_{\mu}, w_{\sigma}$ are learned weight vectors and $b_{\mu}, b_{\sigma}$ are bias terms. Stacking these outputs over all genes gives the full mean prediction $\mu$ and the full log variance prediction $\log \sigma^{2}$.
 
-\noindent In the implementation, the readout is applied independently to each node. This design gives one mean value and one uncertainty related value for each gene node. At batch level, the output has shape $\mathbb{R}^{B \times G \times 2}$.
+\noindent Both outputs are computed from the same final hidden vector $h_{v}^{(L)}$, but they do not use the same parameters. The mean prediction uses $w_{\mu}, b_{\mu}$, while the log variance prediction uses $w_{\sigma}, b_{\sigma}$. The same node representation is therefore projected in two different ways, so the model can learn one mapping for the expected response and another for the uncertainty related value.
 
-\subsection{Uncertainty}
-\noindent Uncertainty estimation is an important part of the proposed model. The reason is that perturbation responses are not equally reliable across all genes or all samples. Some drug effects are strong and consistent, while others are weak, noisy, or highly dependent on cellular state in biological environment. Drug response is shaped by many factors such as baseline expression, pathway activity, hidden regulatory effects, and measurement noise. A single point estimate is therefore not always enough. The model should also indicate how certain it is about each predicted response.
-
-\noindent In this thesis, the uncertainty output is based on a Gaussian view of the prediction target. Instead of treating the response of one gene as a single fixed value, the model treats it as a random variable with a distribution. For gene $g$ in sample $i$, the target response is modeled as
-\begin{equation}
-y_{ig} \sim \mathcal{N}(\mu_{ig}, \sigma_{ig}^{2}).
-\end{equation}
-Here $\mu_{ig}$ is the expected response and $\sigma_{ig}^{2}$ describes how uncertain the model is about that response. A small variance means that the model expects the target to stay close to the mean. A large variance means that the response is treated as less predictable.
-
-\noindent For this reason, the output layer predicts two quantities for each gene. The first is the predictive mean $\mu_{v}$, which represents the expected perturbation response. The second is a log variance term $\log \sigma_{v}^{2}$, which represents predictive uncertainty in a numerically stable form. For one gene node, the output is
-\begin{equation}
-(\mu_{v}, \log \sigma_{v}^{2}),
-\end{equation}
-and stacking these values over all genes gives a batch level output of shape $\mathbb{R}^{B \times G \times 2}$. The mean branch gives the predicted response profile. The variance branch gives a gene wise estimate of how reliable that prediction is. A larger predicted variance means that the model treats that response as less certain.
-
-\noindent This design also matches the biological setting more closely. A drug may have a clear effect on some genes and a more ambiguous effect on others. The same drug can also behave differently across cells when the baseline state changes. Predicting both a mean and a variance lets the model represent this uneven confidence directly, instead of forcing all genes to be treated as equally certain.
 
 \subsection{Loss function}
-\noindent The proposed model uses an uncertainty aware regression loss. Let $m \in \{0,1\}^{G}$ be a gene mask. The supervised target for gene $g$ in sample $i$ is compared with the predicted mean $\mu_{ig}$ and predicted log variance $\log \sigma_{ig}^{2}$. The masked Gaussian negative log likelihood is
+\noindent The proposed model is trained with a combined objective. Part of this design is the same as in the baseline. Both models predict a mean response and a log variance and use a Gaussian negative log likelihood together with a Pearson correlation term computed separately for each sample. The probabilistic interpretation of the output and the general Gaussian negative log likelihood are introduced in the theory chapter in \eqref{eq:gaussian_assumption} and \eqref{eq:gaussian_nll}. For sample $i$ and gene $g$, the target is compared with the predicted mean $\mu_{ig}$ and predicted log variance $\log \sigma_{ig}^{2}$, so the likelihood term is
 \begin{equation}
-\mathcal{L}_{\mathrm{nll}}=\frac{1}{B\sum_{g} m_{g}}\sum_{i=1}^{B}\sum_{g=1}^{G} m_{g}\,\frac{1}{2}\left[\log \sigma_{ig}^{2}+\frac{(y_{ig}-\mu_{ig})^{2}}{\sigma_{ig}^{2}}\right].
+\mathcal{L}_{\mathrm{nll}}=\frac{1}{BG}\sum_{i=1}^{B}\sum_{g=1}^{G}\frac{1}{2}\left[\log \sigma_{ig}^{2}+\frac{(y_{ig}-\mu_{ig})^{2}}{\sigma_{ig}^{2}}\right].
 \end{equation}
-This form follows directly from the Gaussian assumption introduced above. It is the negative log likelihood of observing the target response under the predicted mean and variance.
-Here $B$ is the mini batch size and $G$ is the number of genes. The mask value $m_g$ indicates whether gene $g$ is included in the supervised loss. The term $y_{ig}$ is the true perturbation response for sample $i$ and gene $g$. The term $\mu_{ig}$ is the predicted mean response. The term $\sigma_{ig}^{2}$ is the predicted variance, and $\log \sigma_{ig}^{2}$ is used in the implementation for numerical stability. In the current landmark gene setting, the selected target genes match the prediction space, so the mask covers all selected genes.
+Here $B$ is the mini batch size and $G$ is the number of genes. The term $y_{ig}$ is the true response, $\mu_{ig}$ is the predicted mean, and $\sigma_{ig}^{2}$ is the predicted variance. In the implementation, the model predicts $\log \sigma_{ig}^{2}$ for numerical stability.
 
-\noindent The likelihood contains two parts. The squared error term $(y_{ig}-\mu_{ig})^{2}/\sigma_{ig}^{2}$ encourages the predicted mean to stay close to the target. Its contribution becomes larger when the model predicts a small variance, so confident predictions are required to be accurate. The $\log \sigma_{ig}^{2}$ term penalizes unnecessarily large uncertainty. These two parts work together. A large variance can reduce the normalized error term, but it also increases the log variance penalty. This balance prevents the model from assigning high uncertainty everywhere and encourages it to learn where the response is predictable and where it is less reliable.
-
-\noindent The model also uses a sample wise Pearson correlation term. For one sample $i$, the correlation over the selected genes is
+\noindent The model also uses a Pearson correlation term computed separately for each sample. For one sample $i$, the correlation over the selected genes is
 \begin{equation}
-\mathrm{corr}\!\left(y_{i},\mu_{i}\right)=\frac{\sum_{g}\left(y_{ig}-\bar{y}_{i}\right)\left(\mu_{ig}-\bar{\mu}_{i}\right)}{\sqrt{\sum_{g}\left(y_{ig}-\bar{y}_{i}\right)^{2}}\sqrt{\sum_{g}\left(\mu_{ig}-\bar{\mu}_{i}\right)^{2}}},
+\label{eq:pcc_corr}
+\mathrm{corr}\!\left(y_{i},\mu_{i}\right)=\frac{\mathrm{cov}(y_i,\mu_i)}{\mathrm{std}(y_i)\,\mathrm{std}(\mu_i)},
 \end{equation}
-where $\bar{y}_{i}$ and $\bar{\mu}_{i}$ are means over the selected genes. The correlation loss is
+where the covariance and standard deviations are computed over genes within sample $i$. The correlation loss is
 \begin{equation}
+\label{eq:pcc_loss}
 \mathcal{L}_{\mathrm{pcc}} = 1-\frac{1}{B}\sum_{i=1}^{B}\mathrm{corr}\!\left(y_{i},\mu_{i}\right).
 \end{equation}
-This form is used because the training objective is minimized. A larger Pearson correlation should improve the model, so the optimization uses $1-\mathrm{PCC}$ rather than $\mathrm{PCC}$ itself. When the predicted response matches the true gene wise pattern more closely, the average correlation increases and $\mathcal{L}_{\mathrm{pcc}}$ becomes smaller.
+This form is used because the training objective is minimized. A larger Pearson correlation should improve the model, so the optimization uses $1-\mathrm{PCC}$ rather than $\mathrm{PCC}$ itself.
 
-The main prediction loss is
+\noindent The main prediction objective is
 \begin{equation}
 \mathcal{L}_{\mathrm{full}}=\mathcal{L}_{\mathrm{nll}}+\lambda_{\mathrm{pcc}}\mathcal{L}_{\mathrm{pcc}}.
 \end{equation}
-The likelihood term reduces mean prediction error while learning a gene wise uncertainty level. The PCC term encourages agreement in the shape of the response profile across genes. Together they encourage both an accurate response and a meaningful confidence estimate. In the implementation, $\lambda_{\mathrm{pcc}}=5$.
+The likelihood term reduces prediction error while learning an uncertainty estimate for each gene. The PCC term encourages agreement in the shape of the response profile across genes. In the implementation, $\lambda_{\mathrm{pcc}}$ is set empirically. Small preliminary tests with nearby values suggested that $\lambda_{\mathrm{pcc}}=5$ gave a reasonable balance between the likelihood term and the profile shape term.
 
-\noindent The model also uses a counterfactual drug loss. In each training step, one forward pass uses the true drug target vector and another uses a zero drug target vector. Let the second prediction loss be $\mathcal{L}_{\mathrm{cf}}$. The hinge penalty is
+\noindent A related variant of the proposed model also adds a counterfactual drug loss. In that variant, one forward pass uses the true drug target vector and another uses a zero drug target vector. This extension is introduced to study how strongly the model depends on the drug signal, rather than to redefine the main benchmark. Let $\mathcal{L}_{\mathrm{cf}}$ denote the same prediction objective as $\mathcal{L}_{\mathrm{full}}$, but computed from the zero drug forward pass. In other words, the counterfactual branch still predicts a mean and a log variance, and its loss contains the same Gaussian likelihood term and the same Pearson correlation term computed separately for each sample, only under the zero drug input. The hinge penalty is
 \begin{equation}
 \mathcal{L}_{\mathrm{hinge}}=\max\!\left(0,\delta-\left(\mathcal{L}_{\mathrm{cf}}-\mathcal{L}_{\mathrm{full}}\right)\right).
 \end{equation}
@@ -193,16 +263,16 @@ The final objective is
 \begin{equation}
 \mathcal{L}=\mathcal{L}_{\mathrm{full}}+\lambda_{\mathrm{cf}}\mathcal{L}_{\mathrm{hinge}}.
 \end{equation}
-This term encourages the factual prediction to be better than the counterfactual one~\cite{hadsell2006contrastive, schroff2015facenet, wachter2017counterfactual}.
+This term encourages the prediction with the real drug input to be better than the prediction with the zero drug input~\cite{hadsell2006contrastive, schroff2015facenet, wachter2017counterfactual}.
 
-\subsection{Optimization and Implementation Details}
-The proposed model is trained with Adam. In the main benchmark setting, the learning rate is $5 \times 10^{-4}$. The training uses mini batches of size 32 and fixed training epochs. The main benchmark results use 50 epochs. In each training step, the loop computes one factual forward pass and one counterfactual forward pass. It then backpropagates the full counterfactual training objective. The training loop reports sample wise PCC and MSE after each epoch.
+\subsection{Training settings}
+The proposed model is trained on the paired perturbation data with the same split settings used for the baselines. The main benchmark, the ablation analysis, the uncertainty analysis, and the warm split data efficiency study all keep the same graph backbone, uncertainty output, target definition, and split design. Optimization uses Adam with a fixed learning rate and mini batch training. In the counterfactual variant, one forward pass uses the true drug target vector and another uses a zero drug vector.
 
-\noindent The complete model configuration and hyperparameters are summarized in Table~\ref{tab:proposed_model_config}. The node readout is applied independently to each gene node. The main drug input is the target based drug vector.
+\noindent Table~\ref{tab:proposed_model_config} summarizes the training configuration used for CAGNN. The node readout is applied independently to each gene node. The main drug input is the target based drug vector.
 
-\begin{table}[H]
+\begin{table}[htbp]
     \centering
-    \caption{Main configuration of the proposed model.}
+    \caption[Proposed Model Configuration]{Training configuration of the proposed model.}
     \label{tab:proposed_model_config}
     \begin{tabular}{ll}
         \hline
@@ -216,8 +286,7 @@ The proposed model is trained with Adam. In the main benchmark setting, the lear
         Graph attention layers & 4 \\
         Attention heads & 4 \\
         Dropout & 0.2 \\
-        Output & Mean and log variance \\
-        Log variance clip range & $[-6, 2]$ \\
+        Output & $\mu$ and $\log \sigma^{2}$ \\
         Pearson loss weight $\lambda_{\mathrm{pcc}}$ & 5 \\
         Counterfactual weight $\lambda_{\mathrm{cf}}$ & 1 \\
         Counterfactual margin $\delta$ & 0.1 \\
@@ -225,44 +294,110 @@ The proposed model is trained with Adam. In the main benchmark setting, the lear
     \end{tabular}
 \end{table}
 
-\noindent These values are kept the same across the main benchmark experiments unless otherwise stated.
+\noindent The reported configuration combines values inherited from related work with limited manual tuning under practical memory and runtime constraints. A dedicated validation split was not used for broad hyperparameter search. The reported setting should therefore be understood as a practical configuration for the present benchmark rather than as a fully tuned optimum.
 
-\section{Base model}
-\subsection{Architecture}
-Figure~\ref{fig:base_model_structure} shows the benchmark model. The benchmark follows the DeepCOP style fully connected design~\cite{woo2020deepcop}. It does not use a biological interaction graph.
+\section{Evaluation Metrics}
+\subsection{Split settings}
+\noindent Three split settings are used. Warm split uses a random sample split and evaluates performance on data that look similar to the training set. Cold drug split holds out test drugs from training and measures how well the model works on drugs it has not seen before. Cold cell split holds out test cell lines from training and measures how well the model works on cell lines it has not seen before. In this pipeline, the training set uses multiple matched controls for each treatment profile.
 
-\begin{figure}[H]
+\subsection{Average baselines}
+In addition to the learned models, this thesis also reports several simple average based baselines. These baselines do not train a neural network. Instead, they make predictions directly from averages computed on the training set, showing how much the learned models improve over very simple rules.
+
+\noindent The simplest baseline is \texttt{Mean}, which is obtained by averaging all training response vectors gene by gene. This produces one fixed vector of length 978, and that same vector is used as the prediction for every test sample. As a result, \texttt{Mean} ignores both drug identity and cell identity and represents only the average response pattern observed in the training set.
+\begin{equation}
+\bar{y}_{\mathrm{all}}=\mathrm{mean}\!\left(Y_{\mathrm{train}}\right),
+\qquad
+\hat{y}_j=\bar{y}_{\mathrm{all}} \ \text{for every test sample } j.
+\end{equation}
+
+\noindent When this baseline is evaluated with PCC, the same average vector is compared with each test sample separately. For every test sample, one PCC value is computed with Eq.~\ref{eq:pcc_corr}, and the final reported test PCC is the mean of these values across the full test set. Figure~\ref{fig:mean_pcc_logic} illustrates this calculation process.
+
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/base_model_structure.png}
-    \caption{Structure of the benchmark model. Control gene expression and drug features are concatenated and passed through a feed forward network to predict the response vector.}
-    \label{fig:base_model_structure}
+    \includegraphics[width=0.98\linewidth]{figures/mean_pcc.png}
+    \caption[Mean Baseline PCC]{Illustration of how mean test PCC is computed for the \texttt{Mean} baseline. An average response vector is first estimated from the training set and then repeated as the prediction for every test sample. PCC is computed between each predicted row and the corresponding true response row using Eq.~\ref{eq:pcc_corr}.}
+    \label{fig:mean_pcc_logic}
 \end{figure}
 
-\noindent The benchmark uses the shared control profile and drug input introduced above. The concatenated input is
+\noindent Another baseline is \texttt{mean\_cell}. In this case, the training samples are grouped by cell line, and the response vectors within each group are averaged gene by gene. During testing, each sample is assigned the average vector of its corresponding cell line. This baseline uses cell identity, while still ignoring which drug is applied.
 \begin{equation}
-z = [x_{\mathrm{ctl}} \Vert x_{\mathrm{drug}}] \in \mathbb{R}^{2G}.
+\bar{y}_{\mathrm{cell}}=\mathrm{mean}(\text{training responses from one cell line}),
+\qquad
+\hat{y}=\bar{y}_{\mathrm{cell}}.
 \end{equation}
-For a mini batch, the same input is written as $Z \in \mathbb{R}^{B \times 2G}$. The model then applies two fully connected blocks. Each block uses a dense layer, batch normalization, ReLU, and dropout. The current implementation uses a hidden width of 1024. This means that the hidden representation after each block has shape $\mathbb{R}^{B \times 1024}$. The output stage predicts a mean value and a log variance value for each gene. For one sample, the final output can be written as
+Here, $\bar{y}_{\mathrm{cell}}$ means the average response vector of the cell line to which the test sample belongs.
+
+\noindent When \texttt{mean\_cell} is evaluated with PCC, the test samples are first grouped by cell line. For each cell line that appears in the training set, one average response vector is computed from the corresponding training samples. Each test sample then receives the average vector of its own cell line as prediction, and PCC is computed with Eq.~\ref{eq:pcc_corr}. The final reported test PCC is the mean of these PCC values across the full test set. Figure~\ref{fig:mean_cell_logic} illustrates this calculation process.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.98\linewidth]{figures/mean_cell.png}
+    \caption[Mean Cell PCC]{Illustration of how mean test PCC is computed for the \texttt{mean\_cell} baseline. The training responses are first grouped by cell line, and one average response vector is computed for each cell. Each test sample then receives the average vector of its corresponding cell line. PCC is computed between each predicted row and the corresponding true response row using Eq.~\ref{eq:pcc_corr}, and the final test PCC is the mean of these values.}
+    \label{fig:mean_cell_logic}
+\end{figure}
+
+\noindent \texttt{mean\_drug} is computed in the same way as \texttt{mean\_cell}, except that the grouping variable is the drug rather than the cell line. For each drug in the training set, the response vectors are averaged gene by gene, and each test sample receives the average vector of its drug.
 \begin{equation}
-\left[\mu, \log \sigma^{2}\right] \in \mathbb{R}^{G \times 2}.
+\bar{y}_{\mathrm{drug}}=\mathrm{mean}(\text{training responses from one drug}),
+\qquad
+\hat{y}=\bar{y}_{\mathrm{drug}}.
 \end{equation}
-At batch level, the final output has shape $\hat{Y} \in \mathbb{R}^{B \times G \times 2}$.
+Here, $\bar{y}_{\mathrm{drug}}$ means the average response vector of the drug used in the test sample.
 
-\subsection{Loss function}
-The benchmark model is trained with an uncertainty aware Gaussian negative log likelihood. In the current implementation, the training target is residualized by subtracting a cell specific mean response estimated from the training set. If this residual target is written as $y^{\prime} \in \mathbb{R}^{G}$, the training loss is
+\noindent Not every baseline is meaningful in every split. In the cold drug target split, the test drugs are unseen during training, so a drug specific average cannot be computed for them, so \texttt{mean\_drug} is omitted. In the cold cell split, the same logic applies to unseen cell lines, so \texttt{mean\_cell} is omitted there. By contrast, \texttt{Mean} can always be evaluated because it does not depend on any specific drug or cell label.
+
+\subsection{Error metrics}
+This metric shows how close the predicted response values are to the observed response values. A lower MSE means that the predicted perturbation profile is closer to the true profile.
+
 \begin{equation}
-\mathcal{L}_{\mathrm{base}}=\frac{1}{BG}\sum_{i=1}^{B}\sum_{g=1}^{G}\frac{1}{2}\left[\log \sigma_{ig}^{2}+\frac{\left(y^{\prime}_{ig}-\mu_{ig}\right)^{2}}{\sigma_{ig}^{2}}\right],
+\label{eq:test_mse}
+\mathrm{MSE}=\mathrm{mean}\!\left((y-\hat{y})^2\right).
 \end{equation}
-where $B$ is the mini batch size. Here $\mu_{ig}$ is the predicted mean response and $\sigma_{ig}^{2}$ is the predicted variance for gene $g$ in sample $i$. This loss keeps the benchmark model comparable to the proposed model at the output level, while the two architectures remain different.
 
-\subsection{Optimization}
-The benchmark model is trained with Adam. In the repository version used here, the learning rate is $5 \times 10^{-4}$. The training script uses mini batches of size 256 and fixed training epochs. The benchmark results in this thesis use 10 epochs. The script reports sample wise PCC and MSE on the training and validation sets after each epoch. These benchmark results are produced with the repository implementation rather than the original DeepCOP code base.
+\noindent MSE checks not only the direction of change but also the approximate size of the response. This matters when the strength of perturbation is important. However, MSE alone does not show whether the model captures the overall response pattern well. A model may not get the exact numbers right but still preserve the main biological structure of the profile. In this thesis, MSE follows the same squared error view used in the loss terms introduced above.
 
-\section{Training and evaluation protocol}
-The same target definition is used for both models, but the data pairing strategy differs between training and test. In training, one treatment profile can be matched to several controls. In test, each treatment profile is matched to one control. The split is applied before the final treatment control matching. After that step, the training and test control pools are separated. This design reduces leakage.
+\subsection{Correlation metrics}
+The main correlation metric is Pearson correlation coefficient (PCC). This metric compares the predicted and true response profiles within one sample and asks whether they follow a similar pattern across genes. A higher PCC means that genes predicted to increase or decrease tend to match the observed trend more closely.
 
-\noindent Three split settings are used. Warm split uses a random sample split. Cold drug split holds out test drugs from training. Cold cell split holds out test cell lines from training.
+\noindent Perturbation analysis often cares about whether the overall gene pattern is correct, but a model can still be informative if it identifies which genes move together and which genes change in opposite directions, even when the exact response size is not perfectly matched. So we can use PCC together with MSE to evaluate the final result. The PCC definition follows Eq.~\ref{eq:pcc_corr}, and the related loss function is given in Eq.~\ref{eq:pcc_loss}.
 
-\noindent In this pipeline, the training set uses multiple matched controls for each treatment profile. The default number is three controls per treatment profile. If fewer controls are available, sampling is done with replacement. The test set uses one matched control for each treatment profile. This makes the test setting more conservative.
+\noindent PCC values in this task should not be compared directly with accuracy values from tasks such as classification. Here the model must predict a full continuous response profile across 978 genes for each sample. A good PCC requires the model to recover the relative pattern across many genes, not just to make one correct decision. In addition, drug response data contain measurement noise, different cell states, incomplete drug target information, and many genes with only weak responses. For these reasons, even a modest PCC can still indicate that the predicted gene pattern follows the observed pattern to a useful degree.
 
-\noindent Performance is reported with mean squared error and sample wise Pearson correlation coefficient. In addition, this thesis also reports top gene precision and regulation sign accuracy in the results chapter. Attention weights from the proposed model are used only for interpretation. They are not used to change the prediction after training.
+\noindent The evaluation also reports regulation sign accuracy. This metric asks whether the model predicts the correct direction of regulation for each gene, for example, whether the gene goes up or down. This matters because the sign of change tells whether a gene is up regulated or down regulated after treatment.
+
+\begin{equation}
+\label{eq:sign_acc}
+\mathrm{Acc}_{\mathrm{sign}}=\frac{\text{number of genes with correct sign}}{\text{number of compared genes}}.
+\end{equation}
+
+\noindent This score is computed for each sample and then averaged across the test set, checking whether the predicted direction of change is correct.
+
+\subsection{Precision metrics}
+The evaluation also reports top gene precision. This metric asks whether the model can recover the genes with the strongest positive or negative responses. In practice, this is measured from ranked predicted and true response vectors. The goal is not to treat every small change equally, but to test whether the model identifies the most strongly affected genes.
+
+\noindent For one sample, positive precision at 20 is defined as
+\begin{equation}
+\label{eq:pos_p20}
+\mathrm{Pos\ P@20}=\frac{\text{predicted top 20 up genes that also appear in true top 100 up genes}}{20}.
+\end{equation}
+
+\noindent Negative precision at 20 is defined in the same way for the down regulated genes,
+\begin{equation}
+\label{eq:neg_p20}
+\mathrm{Neg\ P@20}=\frac{\text{predicted top 20 down genes that also appear in true top 100 down genes}}{20}.
+\end{equation}
+
+\noindent This metric is useful because later analysis often focuses on the strongest genes. These genes are more likely to be discussed as key pathway genes or as representative signals of the drug effect. A model with good top gene precision is better at ranking the strongest changed genes.
+
+\subsection{Data efficiency metrics}
+Beyond the standard split settings, this thesis also includes a drug cell pair data efficiency evaluation on the warm split. In this setting, the test set is kept fixed, while the amount of available training data is increased step by step under several fixed settings. This makes it possible to study how quickly different models improve as more training data becomes available.
+
+\noindent This reduction is not done by randomly dropping samples from the whole training set. Instead, it is applied to each drug cell pair. Here a drug cell pair means one specific drug tested in one specific cell line. For example, all repeated measurements of drug A in the A549 cell line form one pair, while the same drug A in MCF7 is counted as a different pair. If the same drug is measured several times in the same cell line, all of these repeated samples belong to the same pair.
+
+\noindent Two simple data settings are used. In the one shot setting, only one training sample is kept for each drug cell pair. In the fraction based setting, only a fixed fraction of the available samples is kept for each pair. For example, if one pair has ten training samples, then a 30\% setting keeps about three of them, while an 80\% setting keeps about eight. The kept samples are chosen randomly within each pair without replacement. If a pair has very few samples, the procedure still keeps at least one sample when the setting is positive. The test set is not changed during this process, so all models are compared on the same evaluation data.
+
+\noindent The reason for testing settings such as one shot, 30\%, or 80\% is that they represent different amounts of available data. One shot is an extreme low data setting. It tests whether the model can still learn when each drug cell pair is seen only once. Mid range settings such as 30\% show whether the model improves steadily when more repeated measurements become available. Higher settings such as 80\% show whether performance is already near its highest point or whether the model still benefits from more data. Together, these settings make it possible to compare not only final accuracy, but also how the models improve as more training data are added.
+
+\noindent This design has a clear advantage. It prevents a few large drug cell pairs from dominating the reduced training set. If samples were removed at random, common pairs would still keep many examples, while rare pairs could disappear entirely. That would make the comparison less fair and less informative about data efficiency for each pair. With the pair based design, each observed drug cell combination remains represented, and the comparison focuses on how many repeated samples for each pair are needed.
+
+\noindent This design also has limitations. It does not test what happens when an entire drug cell pair is missing from training, because each observed pair still keeps at least one sample for any positive setting. For that reason, this experiment is best read as a repeated measurement data efficiency test, not as a new unseen pair test. But it is still relevant because drug response data are often limited and expensive to collect. A model that still works when only a few samples are available for each pair is useful in that setting.

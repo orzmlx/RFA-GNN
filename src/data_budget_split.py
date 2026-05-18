@@ -75,16 +75,14 @@ def build_pair_budget_mask(
 
     mode, value = parse_budget_spec(budget)
     n = len(drug_ids)
-    pair_keys = np.asarray([f"{d}||{c}" for d, c in zip(drug_ids.tolist(), cell_names.tolist())], dtype=object)
-    unique_pairs = np.asarray(sorted(set(pair_keys.tolist())), dtype=object)
     if mode == "full":
         return np.ones((n,), dtype=bool), {
             "budget_mode": mode,
             "budget_value": 1.0,
             "kept_n": int(n),
             "total_n": int(n),
-            "pairs_total": int(len(unique_pairs)),
-            "pairs_kept": int(len(unique_pairs)),
+            "pairs_total": int(len(np.unique(np.char.add(drug_ids, "||" + cell_names)))),
+            "pairs_kept": int(len(np.unique(np.char.add(drug_ids, "||" + cell_names)))),
         }
     if mode == "zero_shot":
         return np.zeros((n,), dtype=bool), {
@@ -92,12 +90,14 @@ def build_pair_budget_mask(
             "budget_value": 0.0,
             "kept_n": 0,
             "total_n": int(n),
-            "pairs_total": int(len(unique_pairs)),
+            "pairs_total": int(len(np.unique(np.char.add(drug_ids, "||" + cell_names)))),
             "pairs_kept": 0,
         }
 
     rng = np.random.default_rng(int(seed))
+    pair_keys = np.asarray([f"{d}||{c}" for d, c in zip(drug_ids.tolist(), cell_names.tolist())], dtype=object)
     keep_mask = np.zeros((n,), dtype=bool)
+    unique_pairs = np.asarray(sorted(set(pair_keys.tolist())), dtype=object)
 
     for pair in unique_pairs.tolist():
         idx = np.where(pair_keys == pair)[0]

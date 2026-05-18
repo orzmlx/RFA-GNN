@@ -1,0 +1,502 @@
+===== Budget run: one_shot =====
+正在加载 RFA 数据 (Landmark Mode: True)...
+CSV路径: CTL=/local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5, TRT=/local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5
+配对模式: multi_trt_multi_ctl
+目标基因数: 978
+正在读取元数据: /local/data1/liume102/rfa/data/siginfo_beta.txt
+^[[A^P过滤后元数据记录数: 117284
+发现 57929 个 Control 样本，涉及 162 个细胞系。
+正在加载所有 Control 数据以计算均值...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5 ...
+  H5 (h5py): 匹配到 57929 个样本 (axis0/Index). 读取中...
+  读取耗时: 2.48s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=57929, Target=978
+  已筛选并对齐到 978 个 Genes。
+发现 67663 个高质量 Treatment 样本。
+正在加载 Treatment 数据...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5 ...
+  H5 (h5py): 匹配到 67663 个样本 (axis0/Index). 读取中...
+  读取耗时: 14.28s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=67663, Target=978
+  已筛选并对齐到 978 个 Genes。
+0可用于 split-before-match 的 trt anchors: 67627
+正在加载药物靶点: /local/data1/liume102/rfa/data/compound_targets.txt
+已加载 728 个药物靶点。
+正在加载药物指纹: /local/data1/liume102/rfa/data/new_morgan_fingerprints.csv
+已加载 28634 个药物指纹，维度: 2048。
+  保留 17740 个 trt anchors (必须同时有 targets 与 fingerprints)
+  有 targets 的 anchors: 17740
+  有 fingerprints 的 anchors: 66252
+过滤掉 49887 个信息不全(Target/FP)的 trt anchors...
+最终有效 trt anchors: (17740, 978)
+数据组装完成: (53220, 978)
+
+===== Running split: warm =====
+Split=warm | Held-out trt samples: 3548/17740
+Isolated ctl pools | shared_before=20957 train_ctl=16200 test_ctl=16200 train_empty=0 test_empty=0
+[budget] split=warm budget=one_shot train=4430/42576 test=3548 pairs=4430/4430
+2026-05-03 14:17:53.374330: W tensorflow/core/common_runtime/gpu/gpu_bfc_allocator.cc:47] Overriding orig_value setting because the TF_FORCE_GPU_ALLOW_GROWTH environment variable is set. Original config value was 0.
+2026-05-03 14:17:53.375397: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1928] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 22068 MB memory:  -> device: 0, name: NVIDIA GeForce RTX 3090, pci bus id: 0000:21:00.0, compute capability: 8.6
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1777810676.260990 3082914 service.cc:145] XLA service 0x7f042c010280 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1777810676.261058 3082914 service.cc:153]   StreamExecutor device (0): NVIDIA GeForce RTX 3090, Compute Capability 8.6
+2026-05-03 14:17:56.325828: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:268] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-05-03 14:17:56.589500: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:465] Loaded cuDNN version 8907
+I0000 00:00:1777810679.491146 3082914 device_compiler.h:188] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1777810684.058351 3083115 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 192 bytes spill stores, 192 bytes spill loads
+
+I0000 00:00:1777810684.322571 3083102 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 308 bytes spill stores, 308 bytes spill loads
+
+I0000 00:00:1777810684.722945 3083113 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot', 196 bytes spill stores, 196 bytes spill loads
+
+I0000 00:00:1777810686.255422 3083176 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 12 bytes spill stores, 12 bytes spill loads
+
+I0000 00:00:1777810691.304183 3083274 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot', 240 bytes spill stores, 240 bytes spill loads
+
+I0000 00:00:1777810691.535926 3083275 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 240 bytes spill stores, 240 bytes spill loads
+
+Epoch 1: pcc=-0.0043 val_pcc=-0.0053
+Epoch 2: pcc=0.0587 val_pcc=0.0443
+Epoch 3: pcc=0.1840 val_pcc=0.1286
+Epoch 4: pcc=0.3337 val_pcc=0.2176
+Epoch 5: pcc=0.4271 val_pcc=0.2750
+Epoch 6: pcc=0.4683 val_pcc=0.2963
+Epoch 7: pcc=0.4990 val_pcc=0.3125
+Epoch 8: pcc=0.5212 val_pcc=0.3224
+Epoch 9: pcc=0.5410 val_pcc=0.3304
+Epoch 10: pcc=0.5557 val_pcc=0.3347
+Epoch 11: pcc=0.5708 val_pcc=0.3426
+Epoch 12: pcc=0.5813 val_pcc=0.3458
+Epoch 13: pcc=0.5945 val_pcc=0.3493
+Epoch 14: pcc=0.6043 val_pcc=0.3517
+Epoch 15: pcc=0.6128 val_pcc=0.3548
+Epoch 16: pcc=0.6187 val_pcc=0.3544
+Epoch 17: pcc=0.6276 val_pcc=0.3569
+Epoch 18: pcc=0.6329 val_pcc=0.3555
+Epoch 19: pcc=0.6376 val_pcc=0.3548
+Epoch 20: pcc=0.6355 val_pcc=0.3483
+Epoch 21: pcc=0.6385 val_pcc=0.3485
+Epoch 22: pcc=0.6543 val_pcc=0.3598
+Epoch 23: pcc=0.6625 val_pcc=0.3661
+Epoch 24: pcc=0.6671 val_pcc=0.3683
+Epoch 25: pcc=0.6721 val_pcc=0.3701
+Epoch 26: pcc=0.6762 val_pcc=0.3696
+Epoch 27: pcc=0.6764 val_pcc=0.3661
+Epoch 28: pcc=0.6751 val_pcc=0.3605
+Epoch 29: pcc=0.6790 val_pcc=0.3617
+Epoch 30: pcc=0.6827 val_pcc=0.3642
+Epoch 31: pcc=0.6893 val_pcc=0.3670
+Epoch 32: pcc=0.6929 val_pcc=0.3682
+Epoch 33: pcc=0.6965 val_pcc=0.3689
+Epoch 34: pcc=0.6982 val_pcc=0.3675
+Epoch 35: pcc=0.7007 val_pcc=0.3678
+Epoch 36: pcc=0.7010 val_pcc=0.3677
+Epoch 37: pcc=0.7041 val_pcc=0.3685
+Epoch 38: pcc=0.7061 val_pcc=0.3690
+Epoch 39: pcc=0.7091 val_pcc=0.3687
+Epoch 40: pcc=0.7135 val_pcc=0.3693
+Epoch 41: pcc=0.7142 val_pcc=0.3701
+Epoch 42: pcc=0.7159 val_pcc=0.3691
+Epoch 43: pcc=0.7165 val_pcc=0.3690
+Epoch 44: pcc=0.7213 val_pcc=0.3718
+Epoch 45: pcc=0.7231 val_pcc=0.3720
+Epoch 46: pcc=0.7265 val_pcc=0.3735
+Epoch 47: pcc=0.7264 val_pcc=0.3725
+Epoch 48: pcc=0.7266 val_pcc=0.3702
+Epoch 49: pcc=0.7272 val_pcc=0.3691
+Epoch 50: pcc=0.7295 val_pcc=0.3712
+Train | MSE: 0.5315 | Sample-wise PCC: 0.7295
+Test  | MSE: 0.9672 | Sample-wise PCC: 0.3712
+Saved predictions to: results/budget/deepcop/deepcop_budget_pred.one_shot.warm.npz
+Saved results to: results/budget/deepcop/deepcop_budget.one_shot.json
+
+===== Budget run: 20% =====
+正在加载 RFA 数据 (Landmark Mode: True)...
+CSV路径: CTL=/local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5, TRT=/local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5
+配对模式: multi_trt_multi_ctl
+目标基因数: 978
+正在读取元数据: /local/data1/liume102/rfa/data/siginfo_beta.txt
+过滤后元数据记录数: 117284
+发现 57929 个 Control 样本，涉及 162 个细胞系。
+正在加载所有 Control 数据以计算均值...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5 ...
+  H5 (h5py): 匹配到 57929 个样本 (axis0/Index). 读取中...
+  读取耗时: 2.42s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=57929, Target=978
+  已筛选并对齐到 978 个 Genes。
+发现 67663 个高质量 Treatment 样本。
+正在加载 Treatment 数据...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5 ...
+  H5 (h5py): 匹配到 67663 个样本 (axis0/Index). 读取中...
+  读取耗时: 14.46s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=67663, Target=978
+  已筛选并对齐到 978 个 Genes。
+可用于 split-before-match 的 trt anchors: 67627
+正在加载药物靶点: /local/data1/liume102/rfa/data/compound_targets.txt
+已加载 728 个药物靶点。
+正在加载药物指纹: /local/data1/liume102/rfa/data/new_morgan_fingerprints.csv
+已加载 28634 个药物指纹，维度: 2048。
+  保留 17740 个 trt anchors (必须同时有 targets 与 fingerprints)
+  有 targets 的 anchors: 17740
+  有 fingerprints 的 anchors: 66252
+过滤掉 49887 个信息不全(Target/FP)的 trt anchors...
+最终有效 trt anchors: (17740, 978)
+数据组装完成: (53220, 978)
+
+===== Running split: warm =====
+Split=warm | Held-out trt samples: 3548/17740
+Isolated ctl pools | shared_before=20957 train_ctl=16200 test_ctl=16200 train_empty=0 test_empty=0
+[budget] split=warm budget=20.0% train=10595/42576 test=3548 pairs=4430/4430
+I0000 00:00:1777811939.991628 3091164 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 8 bytes spill stores, 8 bytes spill loads
+
+I0000 00:00:1777811940.212917 3091151 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 240 bytes spill stores, 240 bytes spill loads
+
+I0000 00:00:1777811940.317822 3091169 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot', 4 bytes spill stores, 4 bytes spill loads
+
+I0000 00:00:1777811940.573579 3091167 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot', 244 bytes spill stores, 244 bytes spill loads
+
+I0000 00:00:1777811940.819773 3091158 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 264 bytes spill stores, 264 bytes spill loads
+
+Epoch 1: pcc=0.1009 val_pcc=0.0841
+Epoch 2: pcc=0.3425 val_pcc=0.2678
+Epoch 3: pcc=0.4140 val_pcc=0.3170
+Epoch 4: pcc=0.4543 val_pcc=0.3405
+Epoch 5: pcc=0.4842 val_pcc=0.3548
+Epoch 6: pcc=0.5096 val_pcc=0.3676
+Epoch 7: pcc=0.5277 val_pcc=0.3747
+Epoch 8: pcc=0.5442 val_pcc=0.3825
+Epoch 9: pcc=0.5591 val_pcc=0.3893
+Epoch 10: pcc=0.5693 val_pcc=0.3938
+Epoch 11: pcc=0.5801 val_pcc=0.3973
+Epoch 12: pcc=0.5860 val_pcc=0.3982
+Epoch 13: pcc=0.5961 val_pcc=0.4011
+Epoch 14: pcc=0.6023 val_pcc=0.4048
+Epoch 15: pcc=0.6057 val_pcc=0.4041
+Epoch 16: pcc=0.6139 val_pcc=0.4073
+Epoch 17: pcc=0.6182 val_pcc=0.4086
+Epoch 18: pcc=0.6230 val_pcc=0.4092
+Epoch 19: pcc=0.6280 val_pcc=0.4109
+Epoch 20: pcc=0.6285 val_pcc=0.4111
+Epoch 21: pcc=0.6308 val_pcc=0.4107
+Epoch 22: pcc=0.6317 val_pcc=0.4087
+Epoch 23: pcc=0.6384 val_pcc=0.4118
+Epoch 24: pcc=0.6432 val_pcc=0.4134
+Epoch 25: pcc=0.6456 val_pcc=0.4132
+Epoch 26: pcc=0.6482 val_pcc=0.4126
+Epoch 27: pcc=0.6522 val_pcc=0.4140
+Epoch 28: pcc=0.6539 val_pcc=0.4139
+Epoch 29: pcc=0.6566 val_pcc=0.4136
+Epoch 30: pcc=0.6586 val_pcc=0.4146
+Epoch 31: pcc=0.6612 val_pcc=0.4140
+Epoch 32: pcc=0.6621 val_pcc=0.4126
+Epoch 33: pcc=0.6644 val_pcc=0.4124
+Epoch 34: pcc=0.6657 val_pcc=0.4119
+Epoch 35: pcc=0.6679 val_pcc=0.4132
+Epoch 36: pcc=0.6690 val_pcc=0.4128
+Epoch 37: pcc=0.6712 val_pcc=0.4124
+Epoch 38: pcc=0.6729 val_pcc=0.4123
+Epoch 39: pcc=0.6744 val_pcc=0.4132
+Epoch 40: pcc=0.6761 val_pcc=0.4129
+Epoch 41: pcc=0.6767 val_pcc=0.4134
+Epoch 42: pcc=0.6788 val_pcc=0.4128
+Epoch 43: pcc=0.6799 val_pcc=0.4139
+Epoch 44: pcc=0.6792 val_pcc=0.4121
+Epoch 45: pcc=0.6813 val_pcc=0.4121
+Epoch 46: pcc=0.6807 val_pcc=0.4117
+Epoch 47: pcc=0.6831 val_pcc=0.4119
+Epoch 48: pcc=0.6840 val_pcc=0.4118
+Epoch 49: pcc=0.6848 val_pcc=0.4120
+Epoch 50: pcc=0.6854 val_pcc=0.4109
+Train | MSE: 0.6083 | Sample-wise PCC: 0.6854
+Test  | MSE: 0.9290 | Sample-wise PCC: 0.4109
+Saved predictions to: results/budget/deepcop/deepcop_budget_pred.20pct.warm.npz
+Saved results to: results/budget/deepcop/deepcop_budget.20pct.json
+
+===== Budget run: 30% =====
+正在加载 RFA 数据 (Landmark Mode: True)...
+CSV路径: CTL=/local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5, TRT=/local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5
+配对模式: multi_trt_multi_ctl
+目标基因数: 978
+正在读取元数据: /local/data1/liume102/rfa/data/siginfo_beta.txt
+过滤后元数据记录数: 117284
+发现 57929 个 Control 样本，涉及 162 个细胞系。
+正在加载所有 Control 数据以计算均值...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5 ...
+  H5 (h5py): 匹配到 57929 个样本 (axis0/Index). 读取中...
+  读取耗时: 2.55s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=57929, Target=978
+  已筛选并对齐到 978 个 Genes。
+发现 67663 个高质量 Treatment 样本。
+正在加载 Treatment 数据...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5 ...
+  H5 (h5py): 匹配到 67663 个样本 (axis0/Index). 读取中...
+  读取耗时: 16.60s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=67663, Target=978
+  已筛选并对齐到 978 个 Genes。
+可用于 split-before-match 的 trt anchors: 67627
+正在加载药物靶点: /local/data1/liume102/rfa/data/compound_targets.txt
+已加载 728 个药物靶点。
+正在加载药物指纹: /local/data1/liume102/rfa/data/new_morgan_fingerprints.csv
+已加载 28634 个药物指纹，维度: 2048。
+  保留 17740 个 trt anchors (必须同时有 targets 与 fingerprints)
+  有 targets 的 anchors: 17740
+  有 fingerprints 的 anchors: 66252
+过滤掉 49887 个信息不全(Target/FP)的 trt anchors...
+最终有效 trt anchors: (17740, 978)
+数据组装完成: (53220, 978)
+
+===== Running split: warm =====
+Split=warm | Held-out trt samples: 3548/17740
+Isolated ctl pools | shared_before=20957 train_ctl=16200 test_ctl=16200 train_empty=0 test_empty=0
+[budget] split=warm budget=30.0% train=14022/42576 test=3548 pairs=4430/4430
+Epoch 1: pcc=0.1533 val_pcc=0.1236
+Epoch 2: pcc=0.3782 val_pcc=0.3032
+Epoch 3: pcc=0.4311 val_pcc=0.3374
+Epoch 4: pcc=0.4699 val_pcc=0.3597
+Epoch 5: pcc=0.4975 val_pcc=0.3739
+Epoch 6: pcc=0.5201 val_pcc=0.3857
+Epoch 7: pcc=0.5371 val_pcc=0.3930
+Epoch 8: pcc=0.5523 val_pcc=0.4004
+Epoch 9: pcc=0.5637 val_pcc=0.4040
+Epoch 10: pcc=0.5747 val_pcc=0.4079
+Epoch 11: pcc=0.5829 val_pcc=0.4120
+Epoch 12: pcc=0.5877 val_pcc=0.4091
+Epoch 13: pcc=0.5953 val_pcc=0.4132
+Epoch 14: pcc=0.6014 val_pcc=0.4154
+Epoch 15: pcc=0.6043 val_pcc=0.4118
+Epoch 16: pcc=0.6110 val_pcc=0.4172
+Epoch 17: pcc=0.6152 val_pcc=0.4178
+Epoch 18: pcc=0.6193 val_pcc=0.4186
+Epoch 19: pcc=0.6232 val_pcc=0.4206
+Epoch 20: pcc=0.6261 val_pcc=0.4207
+Epoch 21: pcc=0.6292 val_pcc=0.4223
+Epoch 22: pcc=0.6324 val_pcc=0.4231
+Epoch 23: pcc=0.6350 val_pcc=0.4236
+Epoch 24: pcc=0.6388 val_pcc=0.4239
+Epoch 25: pcc=0.6403 val_pcc=0.4236
+Epoch 26: pcc=0.6411 val_pcc=0.4235
+Epoch 27: pcc=0.6443 val_pcc=0.4251
+Epoch 28: pcc=0.6478 val_pcc=0.4247
+Epoch 29: pcc=0.6479 val_pcc=0.4234
+Epoch 30: pcc=0.6520 val_pcc=0.4259
+Epoch 31: pcc=0.6526 val_pcc=0.4245
+Epoch 32: pcc=0.6537 val_pcc=0.4259
+Epoch 33: pcc=0.6564 val_pcc=0.4267
+Epoch 34: pcc=0.6577 val_pcc=0.4251
+Epoch 35: pcc=0.6598 val_pcc=0.4258
+Epoch 36: pcc=0.6604 val_pcc=0.4261
+Epoch 37: pcc=0.6623 val_pcc=0.4253
+Epoch 38: pcc=0.6632 val_pcc=0.4259
+Epoch 39: pcc=0.6647 val_pcc=0.4243
+Epoch 40: pcc=0.6655 val_pcc=0.4246
+Epoch 41: pcc=0.6665 val_pcc=0.4247
+Epoch 42: pcc=0.6677 val_pcc=0.4250
+Epoch 43: pcc=0.6683 val_pcc=0.4235
+Epoch 44: pcc=0.6696 val_pcc=0.4247
+Epoch 45: pcc=0.6715 val_pcc=0.4250
+Epoch 46: pcc=0.6721 val_pcc=0.4246
+Epoch 47: pcc=0.6726 val_pcc=0.4249
+Epoch 48: pcc=0.6737 val_pcc=0.4242
+Epoch 49: pcc=0.6738 val_pcc=0.4243
+Epoch 50: pcc=0.6752 val_pcc=0.4238
+Train | MSE: 0.6225 | Sample-wise PCC: 0.6752
+Test  | MSE: 0.9234 | Sample-wise PCC: 0.4238
+Saved predictions to: results/budget/deepcop/deepcop_budget_pred.30pct.warm.npz
+Saved results to: results/budget/deepcop/deepcop_budget.30pct.json
+
+===== Budget run: 50% =====
+正在加载 RFA 数据 (Landmark Mode: True)...
+CSV路径: CTL=/local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5, TRT=/local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5
+配对模式: multi_trt_multi_ctl
+目标基因数: 978
+正在读取元数据: /local/data1/liume102/rfa/data/siginfo_beta.txt
+过滤后元数据记录数: 117284
+发现 57929 个 Control 样本，涉及 162 个细胞系。
+正在加载所有 Control 数据以计算均值...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5 ...
+  H5 (h5py): 匹配到 57929 个样本 (axis0/Index). 读取中...
+  读取耗时: 2.49s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=57929, Target=978
+  已筛选并对齐到 978 个 Genes。
+发现 67663 个高质量 Treatment 样本。
+正在加载 Treatment 数据...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5 ...
+  H5 (h5py): 匹配到 67663 个样本 (axis0/Index). 读取中...
+  读取耗时: 16.76s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=67663, Target=978
+  已筛选并对齐到 978 个 Genes。
+可用于 split-before-match 的 trt anchors: 67627
+正在加载药物靶点: /local/data1/liume102/rfa/data/compound_targets.txt
+已加载 728 个药物靶点。
+正在加载药物指纹: /local/data1/liume102/rfa/data/new_morgan_fingerprints.csv
+已加载 28634 个药物指纹，维度: 2048。
+  保留 17740 个 trt anchors (必须同时有 targets 与 fingerprints)
+  有 targets 的 anchors: 17740
+  有 fingerprints 的 anchors: 66252
+过滤掉 49887 个信息不全(Target/FP)的 trt anchors...
+最终有效 trt anchors: (17740, 978)
+数据组装完成: (53220, 978)
+
+===== Running split: warm =====
+Split=warm | Held-out trt samples: 3548/17740
+Isolated ctl pools | shared_before=20957 train_ctl=16200 test_ctl=16200 train_empty=0 test_empty=0
+[budget] split=warm budget=50.0% train=22469/42576 test=3548 pairs=4430/4430
+I0000 00:00:1777815023.051766 3107319 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot', 196 bytes spill stores, 196 bytes spill loads
+
+I0000 00:00:1777815023.140191 3107338 asm_compiler.cc:369] ptxas warning : Registers are spilled to local memory in function 'triton_gemm_dot_62', 192 bytes spill stores, 192 bytes spill loads
+
+Epoch 1: pcc=0.3270 val_pcc=0.2755
+Epoch 2: pcc=0.4174 val_pcc=0.3413
+Epoch 3: pcc=0.4662 val_pcc=0.3717
+Epoch 4: pcc=0.4973 val_pcc=0.3899
+Epoch 5: pcc=0.5217 val_pcc=0.4042
+Epoch 6: pcc=0.5390 val_pcc=0.4115
+Epoch 7: pcc=0.5520 val_pcc=0.4166
+Epoch 8: pcc=0.5629 val_pcc=0.4230
+Epoch 9: pcc=0.5720 val_pcc=0.4247
+Epoch 10: pcc=0.5788 val_pcc=0.4275
+Epoch 11: pcc=0.5868 val_pcc=0.4302
+Epoch 12: pcc=0.5925 val_pcc=0.4308
+Epoch 13: pcc=0.5969 val_pcc=0.4315
+Epoch 14: pcc=0.6010 val_pcc=0.4339
+Epoch 15: pcc=0.6055 val_pcc=0.4338
+Epoch 16: pcc=0.6096 val_pcc=0.4349
+Epoch 17: pcc=0.6138 val_pcc=0.4356
+Epoch 18: pcc=0.6163 val_pcc=0.4357
+Epoch 19: pcc=0.6188 val_pcc=0.4353
+Epoch 20: pcc=0.6225 val_pcc=0.4368
+Epoch 21: pcc=0.6246 val_pcc=0.4378
+Epoch 22: pcc=0.6269 val_pcc=0.4367
+Epoch 23: pcc=0.6289 val_pcc=0.4366
+Epoch 24: pcc=0.6313 val_pcc=0.4373
+Epoch 25: pcc=0.6332 val_pcc=0.4381
+Epoch 26: pcc=0.6346 val_pcc=0.4384
+Epoch 27: pcc=0.6360 val_pcc=0.4378
+Epoch 28: pcc=0.6380 val_pcc=0.4369
+Epoch 29: pcc=0.6393 val_pcc=0.4376
+Epoch 30: pcc=0.6415 val_pcc=0.4373
+Epoch 31: pcc=0.6415 val_pcc=0.4358
+Epoch 32: pcc=0.6437 val_pcc=0.4375
+Epoch 33: pcc=0.6446 val_pcc=0.4366
+Epoch 34: pcc=0.6462 val_pcc=0.4380
+Epoch 35: pcc=0.6479 val_pcc=0.4379
+Epoch 36: pcc=0.6481 val_pcc=0.4385
+Epoch 37: pcc=0.6494 val_pcc=0.4389
+Epoch 38: pcc=0.6500 val_pcc=0.4376
+Epoch 39: pcc=0.6513 val_pcc=0.4386
+Epoch 40: pcc=0.6540 val_pcc=0.4397
+Epoch 41: pcc=0.6529 val_pcc=0.4377
+Epoch 42: pcc=0.6548 val_pcc=0.4388
+Epoch 43: pcc=0.6563 val_pcc=0.4391
+Epoch 44: pcc=0.6561 val_pcc=0.4380
+Epoch 45: pcc=0.6573 val_pcc=0.4399
+Epoch 46: pcc=0.6586 val_pcc=0.4395
+Epoch 47: pcc=0.6591 val_pcc=0.4386
+Epoch 48: pcc=0.6600 val_pcc=0.4382
+Epoch 49: pcc=0.6609 val_pcc=0.4392
+Epoch 50: pcc=0.6608 val_pcc=0.4376
+Train | MSE: 0.6304 | Sample-wise PCC: 0.6608
+Test  | MSE: 0.9059 | Sample-wise PCC: 0.4376
+Saved predictions to: results/budget/deepcop/deepcop_budget_pred.50pct.warm.npz
+Saved results to: results/budget/deepcop/deepcop_budget.50pct.json
+
+===== Budget run: 80% =====
+正在加载 RFA 数据 (Landmark Mode: True)...
+CSV路径: CTL=/local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5, TRT=/local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5
+配对模式: multi_trt_multi_ctl
+目标基因数: 978
+正在读取元数据: /local/data1/liume102/rfa/data/siginfo_beta.txt
+过滤后元数据记录数: 117284
+发现 57929 个 Control 样本，涉及 162 个细胞系。
+正在加载所有 Control 数据以计算均值...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_ctl_n188708x12328.h5 ...
+  H5 (h5py): 匹配到 57929 个样本 (axis0/Index). 读取中...
+  读取耗时: 2.47s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=57929, Target=978
+  已筛选并对齐到 978 个 Genes。
+发现 67663 个高质量 Treatment 样本。
+正在加载 Treatment 数据...
+正在加载数据文件: /local/data1/liume102/rfa/data/cmap/level3_beta_trt_cp_n1805898x12328.h5 ...
+  H5 (h5py): 匹配到 67663 个样本 (axis0/Index). 读取中...
+  读取耗时: 18.09s
+  Gene ID 匹配: Index=0, Columns=978
+  形状检查: Rows=67663, Target=978
+  已筛选并对齐到 978 个 Genes。
+可用于 split-before-match 的 trt anchors: 67627
+正在加载药物靶点: /local/data1/liume102/rfa/data/compound_targets.txt
+已加载 728 个药物靶点。
+正在加载药物指纹: /local/data1/liume102/rfa/data/new_morgan_fingerprints.csv
+已加载 28634 个药物指纹，维度: 2048。
+  保留 17740 个 trt anchors (必须同时有 targets 与 fingerprints)
+  有 targets 的 anchors: 17740
+  有 fingerprints 的 anchors: 66252
+过滤掉 49887 个信息不全(Target/FP)的 trt anchors...
+最终有效 trt anchors: (17740, 978)
+数据组装完成: (53220, 978)
+
+===== Running split: warm =====
+Split=warm | Held-out trt samples: 3548/17740
+Isolated ctl pools | shared_before=20957 train_ctl=16200 test_ctl=16200 train_empty=0 test_empty=0
+[budget] split=warm budget=80.0% train=36152/42576 test=3548 pairs=4430/4430
+Epoch 1: pcc=0.3824 val_pcc=0.3259
+Epoch 2: pcc=0.4611 val_pcc=0.3806
+Epoch 3: pcc=0.5029 val_pcc=0.4069
+Epoch 4: pcc=0.5276 val_pcc=0.4206
+Epoch 5: pcc=0.5441 val_pcc=0.4280
+Epoch 6: pcc=0.5573 val_pcc=0.4344
+Epoch 7: pcc=0.5681 val_pcc=0.4387
+Epoch 8: pcc=0.5742 val_pcc=0.4406
+Epoch 9: pcc=0.5828 val_pcc=0.4438
+Epoch 10: pcc=0.5879 val_pcc=0.4451
+Epoch 11: pcc=0.5931 val_pcc=0.4466
+Epoch 12: pcc=0.5977 val_pcc=0.4472
+Epoch 13: pcc=0.6002 val_pcc=0.4484
+Epoch 14: pcc=0.6049 val_pcc=0.4500
+Epoch 15: pcc=0.6088 val_pcc=0.4508
+Epoch 16: pcc=0.6112 val_pcc=0.4501
+Epoch 17: pcc=0.6143 val_pcc=0.4517
+Epoch 18: pcc=0.6164 val_pcc=0.4517
+Epoch 19: pcc=0.6191 val_pcc=0.4524
+Epoch 20: pcc=0.6209 val_pcc=0.4528
+Epoch 21: pcc=0.6231 val_pcc=0.4530
+Epoch 22: pcc=0.6250 val_pcc=0.4538
+Epoch 23: pcc=0.6266 val_pcc=0.4537
+Epoch 24: pcc=0.6277 val_pcc=0.4539
+Epoch 25: pcc=0.6305 val_pcc=0.4545
+Epoch 26: pcc=0.6324 val_pcc=0.4556
+Epoch 27: pcc=0.6334 val_pcc=0.4563
+Epoch 28: pcc=0.6351 val_pcc=0.4564
+Epoch 29: pcc=0.6365 val_pcc=0.4572
+Epoch 30: pcc=0.6369 val_pcc=0.4561
+Epoch 31: pcc=0.6380 val_pcc=0.4572
+Epoch 32: pcc=0.6394 val_pcc=0.4574
+Epoch 33: pcc=0.6408 val_pcc=0.4582
+Epoch 34: pcc=0.6417 val_pcc=0.4585
+Epoch 35: pcc=0.6431 val_pcc=0.4582
+Epoch 36: pcc=0.6439 val_pcc=0.4586
+Epoch 37: pcc=0.6452 val_pcc=0.4595
+Epoch 38: pcc=0.6462 val_pcc=0.4596
+Epoch 39: pcc=0.6467 val_pcc=0.4597
+Epoch 40: pcc=0.6477 val_pcc=0.4590
+Epoch 41: pcc=0.6476 val_pcc=0.4603
+Epoch 42: pcc=0.6485 val_pcc=0.4595
+Epoch 43: pcc=0.6499 val_pcc=0.4604
+Epoch 44: pcc=0.6503 val_pcc=0.4606
+Epoch 45: pcc=0.6512 val_pcc=0.4600
+Epoch 46: pcc=0.6518 val_pcc=0.4611
+Epoch 47: pcc=0.6524 val_pcc=0.4611
+Epoch 48: pcc=0.6536 val_pcc=0.4614
+Epoch 49: pcc=0.6540 val_pcc=0.4619
+Epoch 50: pcc=0.6543 val_pcc=0.4627
+Train | MSE: 0.6379 | Sample-wise PCC: 0.6543
+Test  | MSE: 0.8843 | Sample-wise PCC: 0.4627
