@@ -5,13 +5,14 @@ import sys
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 from data_loader import load_rfa_data, subset_anchor_data, build_scheme_a_split_data
 from deepcop import DeepCOP
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 from train_common import (
+    parse_split_modes,
     samplewise_masked_metrics,
     samplewise_pcc,
     save_predictions_npz,
@@ -137,6 +138,7 @@ def main():
     p.add_argument("--logvar_clip_min", type=float, default=-6.0)
     p.add_argument("--logvar_clip_max", type=float, default=2.0)
     p.add_argument("--pcc_lambda", type=float, default=5.0)
+    p.add_argument("--split_modes", default="cold_target_pattern")
     args = p.parse_args()
 
     np.random.seed(int(args.seed))
@@ -224,11 +226,8 @@ def main():
         anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
         anchor_trt_distil_ids = np.asarray(data.get("anchor_trt_distil_ids", [""] * len(anchor_drug_ids)), dtype=str)
 
-    le = LabelEncoder()
-    cell_idx = le.fit_transform(anchor_cell_names)
-    num_cells = int(len(le.classes_))
     results = []
-    split_modes = ["cold_drug"]
+    split_modes = parse_split_modes(args.split_modes, "cold_target_pattern")
     for split_mode in split_modes:
         tf.keras.backend.clear_session()
         tf.random.set_seed(int(args.seed))
@@ -272,15 +271,8 @@ def main():
             fit_cell_names=fit_cell_names,
         )
 
-        sums = np.zeros((num_cells, train_y_full.shape[1]), dtype=np.float32)
-        cnts = np.zeros((num_cells,), dtype=np.int64)
-        train_cells = le.transform(train_cell_names)
-        test_cells = le.transform(test_cell_names)
-        np.add.at(sums, train_cells, train_y_full)
-        np.add.at(cnts, train_cells, 1)
-        mean = sums / np.maximum(cnts[:, None], 1)
-        train_y = train_y_full - mean[train_cells]
-        test_y = test_y_full - mean[test_cells]
+        train_y = train_y_full
+        test_y = test_y_full
 
         model = DeepCOP(
             num_genes=int(train_y.shape[1]),

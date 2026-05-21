@@ -2,7 +2,7 @@ import os
 import sys
 
 
-DEFAULT_SPLIT_MODES = "warm,cold_drug,cold_cell"
+DEFAULT_SPLIT_MODES = "warm,cold_target_pattern,cold_cell"
 
 
 def has_cli_arg(argv, name):
@@ -11,7 +11,7 @@ def has_cli_arg(argv, name):
 
 def inject_default_split_modes(argv, default_split_modes=DEFAULT_SPLIT_MODES):
     forwarded = list(argv)
-    if has_cli_arg(forwarded, "--split_modes") or has_cli_arg(forwarded, "--split_mode"):
+    if has_cli_arg(forwarded, "--split_modes"):
         return forwarded
     return forwarded + ["--split_modes", default_split_modes]
 

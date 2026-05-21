@@ -178,8 +178,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--use_landmark_genes", action="store_true", default=True)
-    parser.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell", "cold_target_pattern"], default="cold_drug")
-    parser.add_argument("--split_modes", default="warm,cold_drug,cold_cell")
+    parser.add_argument("--split_modes", default="warm,cold_target_pattern,cold_cell")
     parser.add_argument("--test_frac", type=float, default=0.2)
     parser.add_argument("--channels", type=int, default=8)
     parser.add_argument("--layers", type=int, default=3)
@@ -265,7 +264,7 @@ def main():
     print("X_input =", X_input.shape, "y_delta =", y_delta.shape)
 
     results = []
-    split_modes = parse_split_modes(args.split_modes, args.split_mode)
+    split_modes = parse_split_modes(args.split_modes, "cold_target_pattern")
     for split_mode in split_modes:
         _, out, _, _ = train_one_split(
             split_mode=split_mode,

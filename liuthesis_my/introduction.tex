@@ -4,41 +4,41 @@
 \section{Background}
 \noindent Drug discovery is slow, expensive, and uncertain. Many candidate drugs fail before they reach the market~\cite{cbo2021rnd}. One reason is that drug effects are hard to predict. A drug may bind to one target protein, but the final response depends on many connected genes, proteins, and signaling pathways inside the cell~\cite{Brown_2025, AnnualReviews_2025}. Because these systems are highly connected, it is difficult to predict how a drug changes the state of a cell.
 
-\noindent Recent work also shows a simple limitation of target based drug discovery. A drug may be designed to act on one main target, but its final effect can still depend on other molecules and on how the whole cellular system responds~\cite{sadri2023offtarget}. Figure~\ref{fig:compound_12_inhibitor_mechanism} gives a simple illustration of this idea. This thesis studies that broader prediction problem. The goal is to predict how gene expression changes after drug treatment, relative to a matched control, in a specific cell type.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figures/compound_12_inhibitor_mechanism.png}
-    \caption[Target Based Limitation]{Conceptual illustration of a limitation of target based drug design. Even if a compound is designed for one main target, other interactions and later effects in the cell can still change the final outcome. Created by the author with AI assistance.}
-    \label{fig:compound_12_inhibitor_mechanism}
-\end{figure}
+\noindent Recent work also shows a simple limitation of target based drug discovery. A drug may be designed to act on one main target, but its final effect can still depend on other molecules and on how the whole cellular system responds~\cite{sadri2023offtarget}. This thesis studies this broader prediction problem and the goal is to predict how gene expression changes the cell’s gene activity, compared to the same cell type without the drug.
 
 \section{Drug perturbation}
 Drug perturbation means using a drug to change the state of a cell so that the response can be studied. A drug usually starts by binding to one or more target proteins. This event may block a protein, activate it, or change its function in another way. The effect usually does not stop there. The signal can spread through interactions inside the cell and affect many downstream genes.
 
-\noindent In this work, the cellular response is described through gene expression. Gene expression shows how active each gene is. After drug treatment, some genes become more active and others become less active. Predicting these changes gives a broad summary of the molecular response and can be measured in large datasets.
+\noindent Usually, the cellular response is described through gene expression. Gene expression measures the quantity of RNA produced from each gene, a higher number means the gene is more active. After drug treatment, some genes become more highly expressed and others become less active. Predicting these changes gives a broad summary of the molecular response and can be measured directly.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\linewidth]{figures/compound_12_inhibitor_mechanism.png}
+    \caption[Target Based Limitation]{Conceptual illustration of a limitation of target based drug design. Even if a compound is designed for one main target, other interactions and later effects in the cell can still change the final outcome. Created by the author with AI assistance.}
+    \label{fig:compound_12_inhibitor_mechanism}
+\end{figure}
+
+\noindent Figure~\ref{fig:compound_12_inhibitor_mechanism} gives a simple illustration of this idea.
 
 \section{High-throughput experiment}
 \noindent Researchers use high-throughput experiments to study drug perturbations at scale. The idea is simple. Many cell lines are grown in multi-well plates. Many drugs are applied under controlled conditions. Gene expression is measured after treatment. This design makes it possible to compare many perturbations in a standard way. Figure~\ref{fig:well_plates} shows this basic idea in a simple form.
 
-\noindent This thesis uses the LINCS L1000 dataset. LINCS records gene expression responses for many compounds, cell lines, doses, and treatment times. Each well contains cells under one experimental condition. After treatment, the assay measures 978 landmark genes. The expression of additional genes can then be inferred from these measurements.
-
 \noindent Each plate includes two main types of wells:
 \begin{enumerate}
-    \item \textbf{Treatment wells}: These contain cells exposed to a specific drug, usually dissolved in DMSO.
-    \item \textbf{Control wells}: These contain cells exposed only to DMSO~\cite{Santos_2003}, without the drug. They provide a reference for the same experimental setting without the drug effect.
+    \item \textbf{Treatment wells}: These contain cells exposed to a specific drug, usually dissolved in DMSO~\cite{Santos_2003}.
+    \item \textbf{Control wells}: These contain cells exposed only to DMSO, without the drug. They provide a reference for the same experimental setting without the drug effect.
 \end{enumerate}
 
-\noindent The key comparison is the difference between a treatment well and a matched control well. This comparison helps separate the drug effect from the background state of the cell. The control must come from a similar treatment setting. The dataset therefore records the cell line, drug dose, treatment time, and plate information, so treatment and control wells can be matched under comparable conditions. These variables matter because the same drug can act differently in different cell types and under different experimental settings.
+\noindent The key comparison is the difference between a treatment well and a matched control well. This comparison helps separate the drug effect from the background state of the cell. The control must come from a similar treatment setting. For this reason, high-throughput experiments also record background variables such as cell line, drug dose, treatment time, and plate information, so treatment and control wells can be matched under comparable conditions. These variables matter because the same drug can act differently in different cell types and under different experimental settings.
 
 \begin{figure}[!htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/well_plates.png}
-    \caption[High Throughput Assay]{Sketch of the high-throughput well plate experiment. A well is a small, separate container that holds cells for individual testing. Created by the author with AI assistance, based on the LINCS L1000 assay description~\cite{l1000_paper}.}
+    \caption[High Throughput Assay]{Sketch of the high-throughput well plate experiment. A well is a small, separate container that holds cells for individual testing. Created by the author with AI assistance.}
     \label{fig:well_plates}
 \end{figure}
 
-\noindent Figure~\ref{fig:high_throughput_plate} gives a more concrete example of how such a plate can be organized in practice. Each row can be assigned to one compound. Several wells in the same row form a dilution series, so the same compound is tested at different doses. DMSO only wells are used as controls. In this way, one plate can contain many related test conditions while still keeping a clear reference for comparison.
+\noindent Figure~\ref{fig:high_throughput_plate} gives a example of how such a plate can be organized in practice. Each row can be assigned to one compound. Several wells in the same row form a dilution series, so the same compound is tested at different doses. DMSO only wells are used as controls. In this way, one plate can contain many related test conditions while still keeping a clear reference for comparison.
 
 \begin{figure}[htbp]
     \centering
@@ -47,36 +47,33 @@ Drug perturbation means using a drug to change the state of a cell so that the r
     \label{fig:high_throughput_plate}
 \end{figure}
 
+\FloatBarrier
 \section{Prior knowledge of molecular interactions}
 
-Another source of information comes from biological knowledge databases. These resources summarize known links among genes and proteins, such as control and signaling relations. This information is useful because drug effects do not come from one target alone. A drug may start from a small set of targets, but the response is shaped by how signals move through the surrounding molecular network.
-
-\noindent OmniPath is one example of such a database. It combines molecular interaction information from many sources and provides directed relationships that can be used to build a graph representation of the cell~\cite{turei2016omnipath}. In this thesis, the OmniPath network is matched to the genes measured in LINCS L1000, so known biology and experimental data use the same gene space.
-
-\noindent This thesis combines these sources of information. Drug treatment data show what changes after treatment. The interaction network gives information about how those changes may spread through the cell. Drug target information marks where the effect begins. Together, they can help the model predict better than by using expression data alone.
+Another source of information comes from biological knowledge databases. These resources summarize known links among genes and proteins, such as control and signaling relations. This information indicates that drug effects do not come from one target alone, they may start from a small set of targets and its response is shaped by how signals move through the surrounding molecular network. One example of such a resource is OmniPath~\cite{turei2016omnipath}. Prior knowledge databases provide interaction structure that can be used to represent how signals may move between genes and proteins.
 
 
 \section{Aim}
-This thesis studies whether a graph based model can predict gene expression changes after drug treatment from the baseline state of the cell, known drug targets, and a molecular interaction network. More accurate response prediction can help researchers test compounds, choose which experiments to perform next, and understand drug action more clearly.
+We focus on whether a graph based model can predict gene expression changes after drug treatment from the baseline state of the cell, known drug targets, and a molecular interaction network. Because more accurate response prediction can help researchers test compounds, choose which experiments to perform next, and understand drug action more clearly.
 
 \noindent The aims of this thesis are:
 \begin{enumerate}
     \item To build a graph neural network (GNN) based on the OmniPath molecular interaction network. This model predicts drug related gene expression changes by combining baseline cell data and drug target information.
-    \item To test how well the model works on unseen drugs and unseen cell lines (where test drugs or cells were never seen during training).
+    \item To test how well the model works on unseen drug targets and unseen cell lines where test drugs' targets or cells were never seen during training.
     \item To compare this model with baseline models that do not use a gene network.
 \end{enumerate}
 
-\noindent The proposed model uses a graph attention network (GAT)~\cite{velickovic2018graph} on the molecular interaction graph. In this graph, nodes correspond to the measured genes and edges represent prior molecular interactions.
+% \noindent The proposed model uses a graph attention network (GAT)~\cite{velickovic2018graph} on the molecular interaction graph. In this graph, nodes correspond to the measured genes and edges represent prior molecular interactions.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/gene_network_gnn_1.png}
-    \caption[Gene Network and GNN]{Left: Example of a real gene network, showing complex connections. Right: A simple drawing of a graph neural network (GNN), where genes and proteins are nodes, and their interactions are edges. Created by the author with AI assistance.}
+    \caption[Gene Network and GNN]{The left panel is a example of a real gene network, showing complex connections, the right panel is a example of gene interaction graph. Created by the author with AI assistance.}
     \label{fig:gene_network_gnn}
 \end{figure}
-\noindent Figure~\ref{fig:gene_network_gnn} gives a simple view of this modeling idea. The molecular network provides the graph structure, and the GNN passes information from drug targets to downstream genes.
+\noindent Figure~\ref{fig:gene_network_gnn} gives a simple view of this modeling idea. In this approach, the GNN is designed to reflect the structure of the known gene interaction network, so the molecular network defines how information can propagate from drug targets to downstream genes.
 
-
+\FloatBarrier
 \section{Related works}
 Graph neural networks are now widely used in biology because many biological systems can be represented as graphs. A recent review summarizes GNN applications in single cell omics and discusses common architectures such as GCN, GraphSAGE, and GAT~\cite{li2025gnn_sc_review, scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}. These models are useful because each node can update its representation by using both its own features and information from connected neighbours. In biology, this makes them a natural choice for pathways, control links, and other structured molecular systems.
 

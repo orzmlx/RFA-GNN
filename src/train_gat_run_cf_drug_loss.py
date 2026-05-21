@@ -319,8 +319,7 @@ def main():
     parser.add_argument("--no_cell_embedding", action="store_true", default=False)
     parser.add_argument("--omnipath_consensus_only", action="store_true", default=False)
     parser.add_argument("--omnipath_is_directed_only", action="store_true", default=False)
-    parser.add_argument("--split_mode", choices=["warm", "cold_drug", "cold_cell", "cold_target_pattern"], default="cold_drug")
-    parser.add_argument("--split_modes", default="")
+    parser.add_argument("--split_modes", default="warm,cold_target_pattern,cold_cell")
     parser.add_argument("--test_frac", type=float, default=0.2)
     parser.add_argument("--eval_drug_zero", action="store_true", default=True)
     parser.add_argument("--eval_drug_shuffle", action="store_true", default=False)
@@ -429,7 +428,7 @@ def main():
     le.fit(anchor_cell_names_arr)
     num_cells = int(len(le.classes_))
 
-    split_modes = parse_split_modes(args.split_modes, args.split_mode)
+    split_modes = parse_split_modes(args.split_modes, "cold_target_pattern")
     fp_dim = int(fp_table.shape[1]) if fp_table is not None else 0
     if args.use_drug_fp_embedding and fp_dim <= 0:
         raise RuntimeError("use_drug_embedding=True 但指纹不存在（X_fingerprint 与 drug_fp_table 均为空）")

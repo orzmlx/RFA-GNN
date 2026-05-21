@@ -1560,13 +1560,13 @@ def load_rfa_data(
         if fp_dim > 0 and pid in drug_to_fp:
             anchor_has_fp[i] = True
 
-    keep_mask = anchor_has_target & anchor_has_fp
-    print(f"  保留 {np.sum(keep_mask)} 个 trt anchors (必须同时有 targets 与 fingerprints)")
+    keep_mask = anchor_has_target
+    print(f"  保留 {np.sum(keep_mask)} 个 trt anchors (required: targets)")
     print(f"  有 targets 的 anchors: {np.sum(anchor_has_target)}")
     print(f"  有 fingerprints 的 anchors: {np.sum(anchor_has_fp)}")
 
     if not np.all(keep_mask):
-        print(f"过滤掉 {np.sum(~keep_mask)} 个信息不全(Target/FP)的 trt anchors...")
+        print(f"过滤掉 {np.sum(~keep_mask)} 个药物特征不满足要求的 trt anchors...")
         keep_idx = np.where(keep_mask)[0]
         anchor_X_trt = anchor_X_trt[keep_idx]
         anchor_X_drug = anchor_X_drug[keep_idx]
