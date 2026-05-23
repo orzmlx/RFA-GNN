@@ -15,7 +15,7 @@ RESULT_TEX = ROOT / "liuthesis_my" / "Result.tex"
 def parse_top_gene_table():
     text = RESULT_TEX.read_text(encoding="utf-8")
     pattern = re.compile(
-        r"Model & Split & Pos P@20 & Neg P@20 \\\\\n\\hline\n(.*?)\\hline",
+        r"\\label\{tab:top_gene_analysis\}.*?\\begin\{tabular\}\{lccc\}(.*?)\\end\{tabular\}",
         re.DOTALL,
     )
     match = pattern.search(text)
@@ -24,17 +24,22 @@ def parse_top_gene_table():
 
     rows = {}
     for line in match.group(1).strip().splitlines():
-        parts = [x.strip() for x in line.replace("\\\\", "").split("&")]
+        clean = line.strip()
+        if not clean or "\\hline" in clean or "Split and metric" in clean:
+            continue
+        parts = [x.strip().replace("\\textbf{", "").replace("}", "") for x in clean.replace("\\\\", "").split("&")]
         if len(parts) != 4:
             continue
-        model, split, pos_val, neg_val = parts
-        rows[(model, split)] = (float(pos_val), float(neg_val))
+        split_metric, deepcop, gsnn, cagnn = parts
+        rows[("DeepCOP", split_metric)] = float(deepcop)
+        rows[("GSNN", split_metric)] = float(gsnn)
+        rows[("CAGNN", split_metric)] = float(cagnn)
     return rows
 
 
 def draw():
     rows = parse_top_gene_table()
-    display_splits = ["Warm", "Cold drug", "Cold cell"]
+    display_splits = ["Warm", "Cold drug target", "Cold cell"]
     models = ["DeepCOP", "GSNN", "CAGNN"]
     colors = {
         "DeepCOP": "#C9DDF2",
@@ -50,7 +55,8 @@ def draw():
 
     for ax, (title, metric_idx) in zip(axes, metric_info):
         for model_idx, model in enumerate(models):
-            vals = [rows[(model, split)][metric_idx] for split in display_splits]
+            suffix = "Pos P@20" if metric_idx == 0 else "Neg P@20"
+            vals = [rows[(model, f"{split} {suffix}")] for split in display_splits]
             offset = (model_idx - 1) * width
             ax.bar(
                 x + offset,

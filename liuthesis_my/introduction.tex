@@ -11,9 +11,9 @@ Drug perturbation means using a drug to change the state of a cell so that the r
 
 \noindent Usually, the cellular response is described through gene expression. Gene expression measures the quantity of RNA produced from each gene, a higher number means the gene is more active. After drug treatment, some genes become more highly expressed and others become less active. Predicting these changes gives a broad summary of the molecular response and can be measured directly.
 
-\begin{figure}[H]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=0.72\linewidth]{figures/compound_12_inhibitor_mechanism.png}
+    \includegraphics[width=0.64\linewidth]{figures/compound_12_inhibitor_mechanism.png}
     \caption[Target Based Limitation]{Conceptual illustration of a limitation of target based drug design. Even if a compound is designed for one main target, other interactions and later effects in the cell can still change the final outcome. Created by the author with AI assistance.}
     \label{fig:compound_12_inhibitor_mechanism}
 \end{figure}
@@ -33,21 +33,20 @@ Drug perturbation means using a drug to change the state of a cell so that the r
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/well_plates.png}
+    \includegraphics[width=0.9\linewidth]{figures/well_plates.png}
     \caption[High Throughput Assay]{Sketch of the high-throughput well plate experiment. A well is a small, separate container that holds cells for individual testing. Created by the author with AI assistance.}
     \label{fig:well_plates}
 \end{figure}
 
 \noindent Figure~\ref{fig:high_throughput_plate} gives a example of how such a plate can be organized in practice. Each row can be assigned to one compound. Several wells in the same row form a dilution series, so the same compound is tested at different doses. DMSO only wells are used as controls. In this way, one plate can contain many related test conditions while still keeping a clear reference for comparison.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.98\linewidth]{figures/high_throughput.png}
+    \includegraphics[width=0.9\linewidth]{figures/high_throughput.png}
     \caption[96 Well Plate Layout]{Example of a 96 well plate layout used in high-throughput screening. Each row tests one compound across a range of doses through serial dilution. DMSO only wells serve as controls without the active compound. Created by the author with AI assistance.}
     \label{fig:high_throughput_plate}
 \end{figure}
 
-\FloatBarrier
 \section{Prior knowledge of molecular interactions}
 
 Another source of information comes from biological knowledge databases. These resources summarize known links among genes and proteins, such as control and signaling relations. This information indicates that drug effects do not come from one target alone, they may start from a small set of targets and its response is shaped by how signals move through the surrounding molecular network. One example of such a resource is OmniPath~\cite{turei2016omnipath}. Prior knowledge databases provide interaction structure that can be used to represent how signals may move between genes and proteins.
@@ -67,13 +66,12 @@ We focus on whether a graph based model can predict gene expression changes afte
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/gene_network_gnn_1.png}
+    \includegraphics[width=0.9\linewidth]{figures/gene_network_gnn_1.png}
     \caption[Gene Network and GNN]{The left panel is a example of a real gene network, showing complex connections, the right panel is a example of gene interaction graph. Created by the author with AI assistance.}
     \label{fig:gene_network_gnn}
 \end{figure}
 \noindent Figure~\ref{fig:gene_network_gnn} gives a simple view of this modeling idea. In this approach, the GNN is designed to reflect the structure of the known gene interaction network, so the molecular network defines how information can propagate from drug targets to downstream genes.
 
-\FloatBarrier
 \section{Related works}
 Graph neural networks are now widely used in biology because many biological systems can be represented as graphs. A recent review summarizes GNN applications in single cell omics and discusses common architectures such as GCN, GraphSAGE, and GAT~\cite{li2025gnn_sc_review, scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}. These models are useful because each node can update its representation by using both its own features and information from connected neighbours. In biology, this makes them a natural choice for pathways, control links, and other structured molecular systems.
 

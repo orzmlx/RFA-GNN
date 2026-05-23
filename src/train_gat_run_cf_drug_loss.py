@@ -99,6 +99,13 @@ def _eval_gat_pack(model, data_pack, batch_size, max_eval, loss_mask, cell_mean=
     )
 
 
+def _parse_csv_list(s):
+    s = str(s).strip()
+    if s == "":
+        return []
+    return [x.strip() for x in s.split(",") if x.strip() != ""]
+
+
 """
 ## Counterfactual drug hinge regularization
 
@@ -328,11 +335,17 @@ def main():
     parser.add_argument("--save_gat_weights", default="")
     parser.add_argument("--save_meta_json", default="")
     parser.add_argument("--save_eval_npz", default="")
+    parser.add_argument("--export_attention", action="store_true", default=False)
+    parser.add_argument("--attention_max_samples", type=int, default=2000)
+    parser.add_argument("--attention_batch_size", type=int, default=64)
+    parser.add_argument("--attention_group_by", choices=["", "drug", "cell"], default="")
+    parser.add_argument("--attention_groups", default="")
+    parser.add_argument("--attention_top_k_groups", type=int, default=12)
     parser.add_argument("--cf_mode", choices=["shuffle", "zero"], default="zero")
     parser.add_argument("--eval_cf_mode", choices=["", "shuffle", "zero"], default="")
     parser.add_argument("--cf_lambda", type=float, default=1.0)
     parser.add_argument("--cf_margin", type=float, default=0.1)
-    parser.add_argument("--predict_uncertainty", action="store_true", default=True)
+    parser.add_argument("--predict_uncertainty", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--pcc_lambda", type=float, default=5.0)
     parser.add_argument("--logvar_clip_min", type=float, default=-6.0)
     parser.add_argument("--logvar_clip_max", type=float, default=2.0)
@@ -749,6 +762,8 @@ def main():
 
         if str(args.save_eval_npz).strip() != "":
             out_path = append_split_suffix(args.save_eval_npz, split_mode)
+            if bool(args.export_attention) and not bool(args.sparse_gat):
+                raise ValueError("export_attention 目前只支持 --sparse_gat")
             if bool(args.use_drug_fp_embedding):
                 y_pred_test = trainer.predict([test_ctl, test_drug, test_cells, test_fp], batch_size=256, verbose=0)
             else:
@@ -768,6 +783,92 @@ def main():
                 sanity["drug_zero"] = sanity_drug_zero_metrics
             if sanity_drug_shuffle_metrics is not None:
                 sanity["drug_shuffle"] = sanity_drug_shuffle_metrics
+
+            attention = {}
+            if bool(args.export_attention):
+                rng = np.random.default_rng(0)
+                n_all = int(len(test_ctl))
+                n_attn = min(int(args.attention_max_samples), n_all) if int(args.attention_max_samples) > 0 else n_all
+                sel = rng.choice(n_all, size=n_attn, replace=False) if n_attn < n_all else np.arange(n_all)
+
+                group_by = str(args.attention_group_by).strip().lower()
+                group_labels = None
+                if group_by == "drug":
+                    group_labels = np.asarray(test_drug_ids_arr[sel], dtype=str)
+                elif group_by == "cell":
+                    group_labels = np.asarray(test_cell_names_arr[sel], dtype=str)
+                keep_groups = None
+                if group_labels is not None:
+                    specified = _parse_csv_list(args.attention_groups)
+                    if len(specified) > 0:
+                        keep_groups = set([str(x) for x in specified])
+                    else:
+                        uniq, counts = np.unique(group_labels, return_counts=True)
+                        order = uniq[np.argsort(-counts)]
+                        keep_groups = set(order[: int(args.attention_top_k_groups)].tolist())
+
+                edge_index_tf = tf.constant(edge_index_full.astype(np.int32), dtype=tf.int32)
+                edge_weight_tf = tf.constant(edge_weight_full.astype(np.float32), dtype=tf.float32)
+
+                layer_sums = None
+                group_sums = None
+                group_counts = None
+                bs = int(args.attention_batch_size) if int(args.attention_batch_size) > 0 else 64
+                for start in range(0, len(sel), bs):
+                    end = min(start + bs, len(sel))
+                    idx = sel[start:end]
+                    b_ctl = tf.constant(test_ctl[idx], dtype=tf.float32)
+                    b_drug = tf.constant(test_drug[idx], dtype=tf.float32)
+                    b_cell = tf.constant(test_cells[idx], dtype=tf.int32)
+                    if bool(args.use_drug_fp_embedding):
+                        if isinstance(test_fp, np.ndarray) and test_fp.ndim == 2:
+                            b_fp = tf.constant(test_fp[idx], dtype=tf.float32)
+                        else:
+                            b_fp = tf.constant(test_fp[idx], dtype=tf.int32)
+                        _, attns = model([edge_index_tf, edge_weight_tf, b_ctl, b_drug, b_cell, b_fp], training=False, output_attention=True)
+                    else:
+                        _, attns = model([edge_index_tf, edge_weight_tf, b_ctl, b_drug, b_cell], training=False, output_attention=True)
+
+                    att_np = []
+                    for li, a in enumerate(attns):
+                        a = tf.reduce_mean(a, axis=1).numpy().astype(np.float64)
+                        att_np.append(a)
+                        s = np.sum(a, axis=0)
+                        if layer_sums is None:
+                            layer_sums = [np.zeros_like(s, dtype=np.float64) for _ in range(len(attns))]
+                        layer_sums[li] += s
+
+                    if group_labels is not None and keep_groups is not None:
+                        if group_sums is None:
+                            group_sums = {g: [np.zeros((att_np[0].shape[1],), dtype=np.float64) for _ in range(len(attns))] for g in keep_groups}
+                            group_counts = {g: 0 for g in keep_groups}
+                        b_labels = group_labels[start:end]
+                        for g in np.unique(b_labels):
+                            if g not in keep_groups:
+                                continue
+                            m = np.where(b_labels == g)[0]
+                            if len(m) == 0:
+                                continue
+                            group_counts[g] += int(len(m))
+                            for li in range(len(attns)):
+                                group_sums[g][li] += np.sum(att_np[li][m], axis=0)
+
+                layer_means = [x / float(len(sel)) for x in layer_sums]
+                attention = {
+                    "attention_edge_mean": np.stack(layer_means, axis=0).astype(np.float32),
+                    "edge_index": edge_index_full.astype(np.int32),
+                    "edge_weight": edge_weight_full.astype(np.float32),
+                    "attention_num_samples": int(len(sel)),
+                }
+                if group_sums is not None and group_counts is not None:
+                    group_means = {}
+                    for g, c in group_counts.items():
+                        if int(c) <= 0:
+                            continue
+                        group_means[str(g)] = np.stack([group_sums[g][li] / float(c) for li in range(len(group_sums[g]))], axis=0).astype(np.float32)
+                    attention["group_by"] = group_by
+                    attention["group_counts"] = {str(k): int(v) for k, v in group_counts.items()}
+                    attention["group_attention_edge_mean"] = group_means
 
             meta_out = {
                 "cell_line": args.cell_line,
@@ -802,6 +903,8 @@ def main():
                 "best_val_mse": (None if pcc_cb.best_val_mse is None else float(pcc_cb.best_val_mse)),
                 "train_metrics": train_metrics,
                 "test_metrics": test_metrics,
+                "export_attention": bool(args.export_attention),
+                "attention_group_by": str(args.attention_group_by),
             }
 
             save_npz(
@@ -818,6 +921,7 @@ def main():
                 target_genes=np.asarray(data["target_genes"], dtype=object),
                 metrics=test_metrics,
                 sanity=sanity,
+                attention=attention,
                 meta=meta_out,
             )
             print(f"Saved eval npz to: {out_path}")

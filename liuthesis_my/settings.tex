@@ -11,6 +11,13 @@
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
 
+% Keep float-only pages top-aligned instead of vertically centered.
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpsep}{12pt}
+\setlength{\@fpbot}{0pt plus 1fil}
+\makeatother
+
 % ------------------------------------------------------------
 % Chapter style (Memoir): VZ43
 % Ensures chapter pages do not show the "Chapter N" label.

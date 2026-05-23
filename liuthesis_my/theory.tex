@@ -2,7 +2,7 @@
 \noindent This chapter introduces the theoretical background needed in the thesis. Unless otherwise stated, figures from this chapter were created by the author.
 
 \section{Deep neural networks}
-A deep neural network is a model that maps an input to an output through several hidden layers. Each hidden layer transforms the representation from the previous layer, so the network can learn more complex patterns than a single linear transformation. Figure~\ref{fig:fully_connect_network} shows a simple example.
+A deep neural network maps an input to an output through several hidden layers. In this thesis, only a small amount of general background is needed before introducing the graph based model. Figure~\ref{fig:fully_connect_network} shows a simple feed forward network.
 
 \begin{figure}[htbp]
     \centering
@@ -11,52 +11,16 @@ A deep neural network is a model that maps an input to an output through several
     \label{fig:fully_connect_network}
 \end{figure}
 
-\noindent In this figure, the input enters from the left and is transformed step by step through the two hidden layers. The hidden layers are labeled as $h^{[1]}$ and $h^{[2]}$, they represent the first and second hidden representations inside the network. The unit on the right represents the final output of the network. The input units are labeled as $x_[1]$, $x_[2]$, and $x_[3]$, they represent the three components of one input vector and $y$ represents a scalar output.
-
-\subsection{Dense layer}
-A dense layer is the basic transformation in the network. In a dense layer, every output unit receives information from all units in the previous layer. If the input vector is $x$, the output of one dense layer can be written as
+\noindent In this figure, the input enters from the left and is transformed step by step through the hidden layers. The hidden layers are labeled as $h^{[1]}$ and $h^{[2]}$, and the input units are labeled as $x_{1}$, $x_{2}$, and $x_{3}$. A dense layer applies the same basic operation throughout such a network:
 \begin{equation}
 h = \sigma(Wx + b),
 \end{equation}
-where $W$ is a weight matrix, $b$ is a bias vector, and $h$ is the new hidden representation. The product $Wx + b$ is a linear transformation of the input. The activation function $\sigma(\cdot)$ is then applied elementwise. Stacking several dense layers allows the model to transform the input step by step.
+where $W$ is a weight matrix, $b$ is a bias vector, and $h$ is the new hidden representation. The linear map $Wx+b$ is followed by an activation function $\sigma(\cdot)$ that adds nonlinearity. This nonlinearity is important because, without it, stacking several dense layers would still behave like one linear transformation. In the dense baseline used later, the hidden layers use ReLU activations, while the final regression output is left linear.
 
-\subsection{Activation functions}
-The activation function adds nonlinearity. Without it, several dense layers would still behave like one linear map. The main choice in this thesis is ReLU,
-\begin{equation}
-\mathrm{ReLU}(x)=\max(0,x),
-\end{equation}
-which is used in the dense baseline. ReLU is simple and usually works well in hidden layers. For regression tasks, the final output layer often uses no activation function.
+\subsection{Counterfactual regularization}
+\noindent Counterfactual regularization compares two forward passes for the same sample. One pass uses the original input, and the other uses a modified version in which an important part of the input is removed or perturbed. If that missing part carries useful information, the original input should give a better prediction than the counterfactual input.
 
-\subsection{Stacked layers}
-If $h^{(0)}=x$, a network with $L$ hidden layers can be written as
-\begin{equation}
-h^{(\ell+1)}=\sigma\!\left(W^{(\ell)}h^{(\ell)}+b^{(\ell)}\right), \quad \ell=0,\dots,L-1.
-\end{equation}
-The output of one layer becomes the input of the next, so deeper networks can build more expressive hidden representations.
-
-\subsection{Regularization}
-Regularization helps reduce overfitting and discourages solutions that are not useful for the task. In this thesis, two regularization ideas are relevant. Dropout reduces co adaptation between hidden units. Counterfactual regularization encourages the model to use drug information rather than relying too strongly on the control profile alone.
-
-\subsubsection{Dropout}
-\noindent Dropout reduces overfitting by randomly removing part of the hidden units during training~\cite{srivastava2014dropout}. If a hidden vector is $h \in \mathbb{R}^{d}$ and the dropout mask is $r \in \{0,1\}^{d}$, the dropped representation can be written as
-\begin{equation}
-\tilde{h}=r \odot h,
-\end{equation}
-\noindent where $\odot$ is element by element multiplication. If one entry of $r$ is zero, the matching hidden unit is removed in that update. This makes the network less dependent on a small set of hidden units and often helps it work better on new data. Dropout is turned off during testing because we want the model to give the same answer every time for the same input. If dropout stayed on, the answer would change randomly each run which is not acceptable for a reliable prediction.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.95\linewidth]{figures/dropout.png}
-    \caption[Dropout During Training]{Dropout during training. The left side shows the full hidden layer. The right side shows one training update after dropout is applied. The dashed connections indicate which paths are dropped.}
-    \label{fig:dropout}
-\end{figure}
-
-
-
-\subsubsection{Counterfactual regularization}
-\noindent Counterfactual regularization compares two forward passes for the same sample. One pass uses the original input, and the other uses a modified version. The modified input represents a simple alternative where an important part of the input is missing or changed. That is why it is called counterfactual. If the removed or perturbed part carries useful information for the task, the original input is expected to give a better prediction than the counterfactual input.
-
-\noindent The comparison here is simple. The model sees the same sample twice, once in its original form and once in a modified form. The training objective then encourages the model to perform better with the full input than with the modified input.
+\noindent In this thesis, this idea is used to encourage the model to rely on the drug signal instead of explaining the response mainly from the control profile and cell context alone.
 
 \noindent Let $\mathcal{L}_{\mathrm{full}}$ be the prediction loss from the original input and let $\mathcal{L}_{\mathrm{cf}}$ be the prediction loss from the counterfactual input. A hinge style penalty can then be written as
 \begin{equation}
@@ -66,50 +30,8 @@ The training objective becomes
 \begin{equation}
 \mathcal{L}=\mathcal{L}_{\mathrm{full}}+\lambda_{\mathrm{cf}}\mathcal{L}_{\mathrm{hinge}}.
 \end{equation}
-\noindent This penalty encourages the prediction from the original input to be better than the prediction from the counterfactual input by at least a margin $\delta$~\cite{wachter2017counterfactual}. In this way, the model is discouraged from ignoring the information that was perturbed or removed. A task specific use of this idea is introduced later in the methodology chapter.
+\noindent This penalty encourages the prediction from the original input to be better than the prediction from the counterfactual input by at least a margin $\delta$. In this way, the model is discouraged from ignoring the information that was perturbed or removed. A task specific use of this idea is introduced later in the methodology chapter.
 
-\subsection{Mini batches, learning rate, and optimizer}
-During training, the full dataset is usually split into smaller groups called mini batches. Instead of using the whole dataset for every parameter update, the model uses one mini batch at a time to compute the loss and gradient. After all mini batches have been processed once, one training epoch is completed. The learning rate controls the step size of each update.
-
-\noindent If the model parameters are written as $\theta$ and the loss on one mini batch is $\mathcal{L}_{\mathcal{B}}(\theta)$, a simple gradient based update is
-\begin{equation}
-\theta \leftarrow \theta - \eta \nabla_{\theta}\mathcal{L}_{\mathcal{B}}(\theta),
-\end{equation}
-where $\eta$ is the learning rate.
-
-\noindent Adam is a widely used optimizer~\cite{kingma2015adam}. It combines information from past gradients and squared gradients to produce smoother parameter updates, and it is used in the experiments reported later.
-
-\subsection{Batch and layer normalization}
-Normalization helps keep hidden activations in a more stable range during training. This thesis uses two common forms, namely batch normalization and layer normalization.
-
-\noindent Batch normalization and layer normalization use the same basic normalization form. The difference is how the mean and variance are computed. Let $a_{ij}$ denote the activation value of feature $j$ for sample $i$ in one mini batch of size $B$. In batch normalization, one mean and one variance are computed for each feature across the mini batch:
-\begin{equation}
-\mu_{\mathrm{batch},j}=\frac{1}{B}\sum_{i=1}^{B} a_{ij},
-\qquad
-\sigma_{\mathrm{batch},j}^{2}=\frac{1}{B}\sum_{i=1}^{B}(a_{ij}-\mu_{\mathrm{batch},j})^2.
-\end{equation}
-
-\noindent In layer normalization, the same idea is used, but the mean and variance are computed across the hidden features of one sample. Here $h_{ij}$ denotes feature $j$ in the hidden representation of sample $i$, and $d$ is the hidden dimension:
-\begin{equation}
-\mu_{\mathrm{layer},i}=\frac{1}{d}\sum_{j=1}^{d} h_{ij},
-\qquad
-\sigma_{\mathrm{layer},i}^{2}=\frac{1}{d}\sum_{j=1}^{d}(h_{ij}-\mu_{\mathrm{layer},i})^2.
-\end{equation}
-
-\noindent After these statistics are computed, the normalization step has the same form:
-\begin{equation}
-\mathrm{Norm}(x)=\gamma \frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}+\beta.
-\end{equation}
-Here $\gamma$ and $\beta$ are learned scale and shift parameters, and $\epsilon$ is a small constant added to avoid division by zero. Batch normalization is used in the dense baseline, while layer normalization is used in the graph attention blocks.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figures/BN_LN.png}
-    \caption[Batch vs Layer Normalization]{Comparison of batch normalization and layer normalization. The left panel shows batch normalization, where the statistics are computed for each feature over the mini batch. The right panel shows layer normalization, where the statistics are computed over the hidden features of one sample.}
-    \label{fig:bn_ln}
-\end{figure}
-
-\FloatBarrier
 \section{Graph neural networks}
 \subsection{Graphs}
 A graph represents relations between a collection of objects. The objects are called nodes, and the relations are called edges. Mathematically, a graph is written as $G=(V,E)$, where $V$ is the set of nodes and $E$ is the set of edges. Each edge connects a pair of nodes. Figure~\ref{fig:graph_components} shows a simple directed graph.
@@ -154,9 +76,9 @@ This is the core idea that lets a graph neural network use the graph structure. 
 
 \noindent After one layer, a node holds information from its direct neighbors. When more layers are stacked, the receptive field becomes larger and the node can also receive information from more distant parts of the graph.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/2_layers_message_passing.png}
+    \includegraphics[width=0.85\linewidth]{figures/2_layers_message_passing.png}
     \caption[Two Layer Message Passing]{How message passing expands across layers. The yellow node $N_1$ is the target node. After one layer, it receives information from its one hop neighbors $N_2$, $N_3$, and $N_4$. After two layers, information from the two hop neighbors $N_5$ to $N_9$ can also reach $N_1$ through the intermediate nodes.}
     \label{fig:two_layer_message_passing}
 \end{figure}
@@ -217,9 +139,9 @@ Graph neural networks can produce several kinds of outputs. One common choice is
 \subsection{Graph Attention Networks (GAT)}
 Graph Attention Networks (GATs) give different weights to different neighbours~\cite{velickovic2018graph}. Figure~\ref{fig:attention_mechanism} shows how the attention weights are computed.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/attention_mechnisam.png}
+    \includegraphics[width=0.85\linewidth]{figures/attention_mechnisam.png}
     \caption[GAT Attention Scores]{Computation of attention scores and normalized attention weights in a graph attention layer. The left side shows source and target node features. The middle stacked vectors show their linear projections and concatenation. The arrows show the computation path from projection to score, from score to softmax, and then to the normalized output feature.}
     \label{fig:attention_mechanism}
 \end{figure}
@@ -260,9 +182,9 @@ h_{v}^{(\ell+1)}=\sigma\!\left(\sum_{u \in \mathcal{N}(v)} \alpha_{u \rightarrow
 
 \noindent Figure~\ref{fig:multi_head_gat} shows this idea. The same local neighborhood around node $v$ is sent to several GAT heads in parallel. Each head has its own projection and attention parameters, so each one can produce a different updated representation for the same target node.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/multi_head.png}
+    \includegraphics[width=0.85\linewidth]{figures/multi_head.png}
     \caption[Multi-Head GAT]{Multi-head attention in a graph attention network. The same neighborhood is processed by several GAT heads in parallel, and the head outputs are concatenated to form the final node representation.}
     \label{fig:multi_head_gat}
 \end{figure}
@@ -309,9 +231,9 @@ Here $W_{1}$ and $W_{2}$ are the weight matrices and $b_{1}, b_{2}$ are the bias
 \subsubsection{GAT attention block}
 \noindent In the original GAT definition, the core operation is the attention based neighborhood aggregation described above~\cite{velickovic2018graph}. In many later attention based models, the attention layer is followed by the small two layer block described above, with residual connections and layer normalization around these sublayers~\cite{vaswani2017attention,he2016residual,ba2016layernorm}. This design became widely known through the Transformer architecture~\cite{vaswani2017attention} and was later adopted in graph Transformer style models such as Graphormer and GraphGPS~\cite{ying2021graphormer,rampasek2022graphgps}.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.95\linewidth]{figures/attention_block.png}
+    \includegraphics[width=0.85\linewidth]{figures/attention_block.png}
     \caption[GAT Attention Block]{Complete attention layer with an attention block. The block combines multi-head attention, a feed forward block, and two residual normalization steps.}
     \label{fig:gat_attention_block}
 \end{figure}
@@ -319,7 +241,6 @@ Here $W_{1}$ and $W_{2}$ are the weight matrices and $b_{1}, b_{2}$ are the bias
 \noindent Figure~\ref{fig:gat_attention_block} illustrates this complete attention layer with attention block. Each part in this block has a different role. Attention mixes information across neighboring nodes, the FFN further transforms each node representation, residual connections preserve useful earlier information, and layer normalization helps keep training stable~\cite{vaswani2017attention,he2016residual,ba2016layernorm}. This design was later adopted in graph Transformer style models such as Graphormer and GraphGPS~\cite{ying2021graphormer,rampasek2022graphgps}.
 
 \noindent GAT can be more useful when the graph is noisy or incomplete. In many real datasets, some edges are weak, indirect, or uncertain. A fixed aggregation rule treats all neighbours in a similar way after normalization. Attention can reduce the influence of less informative neighbours and give more weight to neighbours that appear more relevant for the current prediction. This does not remove graph noise, but it can make the model more robust to it.
-\FloatBarrier
 \subsection{Uncertainty estimation}
 
 \noindent Predictions should not always be interpreted as equally reliable. Uncertainty estimation is used to represent this difference. Instead of giving only one predicted value, the model can also describe how certain or uncertain that prediction is. In this thesis, the uncertainty mainly refers to input dependent noise in the prediction target rather than uncertainty in the model parameters.

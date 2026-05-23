@@ -18,7 +18,7 @@ def load_panel(npz_path, model_name, split_name):
     }
 
 
-def draw_figure(panels, out_path, seed=42, max_points=120000):
+def draw_figure(panels, out_path, seed=42, max_points=120000, axis_quantile=0.998):
     n_rows = len(panels)
     n_cols = len(panels[0])
     rng = np.random.default_rng(int(seed))
@@ -45,10 +45,30 @@ def draw_figure(panels, out_path, seed=42, max_points=120000):
                 y_pred = y_pred[idx]
             row.append({"y_true": y_true, "y_pred": y_pred, "panel": panel})
         sampled_panels.append(row)
+
+    # Use one shared global axis range for all panels so every split and model
+    # is visually comparable with the same x/y scale.
+    pooled = []
+    for i in range(n_rows):
+        for j in range(n_cols):
+            pooled.append(sampled_panels[i][j]["y_true"])
+            pooled.append(sampled_panels[i][j]["y_pred"])
+    pooled = np.concatenate(pooled, axis=0)
+    q = float(axis_quantile)
+    if not (0.5 < q < 1.0):
+        raise ValueError("axis_quantile must be in (0.5, 1.0)")
+    lower_q = 1.0 - q
+    data_min = float(np.quantile(pooled, lower_q))
+    data_max = float(np.quantile(pooled, q))
+    spread = max(float(data_max - data_min), 1e-6)
+    pad = 0.08 * spread
+    global_lo = float(data_min - pad)
+    global_hi = float(data_max + pad)
+
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(8.6, 8.2),
+        figsize=(8.6, 10.2),
         dpi=220,
     )
     if n_rows == 1:
@@ -60,11 +80,7 @@ def draw_figure(panels, out_path, seed=42, max_points=120000):
             panel = payload["panel"]
             y_true = payload["y_true"]
             y_pred = payload["y_pred"]
-            data_min = float(min(np.min(y_true), np.min(y_pred)))
-            data_max = float(max(np.max(y_true), np.max(y_pred)))
-            pad = 0.03 * max(data_max - data_min, 1e-6)
-            lo = data_min - pad
-            hi = data_max + pad
+            lo, hi = global_lo, global_hi
             ax.hexbin(
                 y_true,
                 y_pred,
@@ -116,7 +132,7 @@ def main():
     root = "/Users/liuxi/Desktop/RFA_GNN"
     split_labels = {
         "warm": "Warm",
-        "cold_drug": "Cold drug",
+        "cold_target_pattern": "Cold drug target",
         "cold_cell": "Cold cell",
     }
     model_files = [
@@ -124,7 +140,7 @@ def main():
             "DeepCOP",
             {
                 "warm": os.path.join(root, "results", "deepcop.pred.warm.npz"),
-                "cold_drug": os.path.join(root, "results", "deepcop.pred.cold_drug.npz"),
+                "cold_target_pattern": os.path.join(root, "results", "cold_target_pattern", "deepcop_cold_target_pattern.pred.cold_target_pattern.npz"),
                 "cold_cell": os.path.join(root, "results", "deepcop.pred.cold_cell.npz"),
             },
         ),
@@ -132,20 +148,28 @@ def main():
             "GSNN",
             {
                 "warm": os.path.join(root, "gsnn_res", "gsnn_978_allcells_results.pred.warm.npz"),
-                "cold_drug": os.path.join(root, "gsnn_res", "gsnn_978_allcells_results.pred.cold_drug.npz"),
+                "cold_target_pattern": os.path.join(root, "results", "cold_target_pattern", "gsnn_cold_target_pattern.pred.cold_target_pattern.npz"),
                 "cold_cell": os.path.join(root, "gsnn_res", "gsnn_978_allcells_results.pred.cold_cell.npz"),
             },
         ),
         (
-            "CAGNN",
+            "UPert no-CF",
             {
-                "warm": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.warm.npz"),
-                "cold_drug": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.cold_drug.npz"),
-                "cold_cell": os.path.join(root, "results", "gat_hybrid_uncertainty_all_splits.eval.cold_cell.npz"),
+                "warm": os.path.join(root, "outputs", "no_cf_0523", "ugat_no_cf_uncertainty_sparse.eval.warm.npz"),
+                "cold_target_pattern": os.path.join(root, "outputs", "no_cf_0523", "ugat_no_cf_uncertainty_sparse.eval.cold_target_pattern.npz"),
+                "cold_cell": os.path.join(root, "outputs", "no_cf_0523", "ugat_no_cf_uncertainty_sparse.eval.cold_cell.npz"),
+            },
+        ),
+        (
+            "UPert with CF",
+            {
+                "warm": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.warm.npz"),
+                "cold_target_pattern": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.cold_target_pattern.npz"),
+                "cold_cell": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.cold_cell.npz"),
             },
         ),
     ]
-    split_order = ["warm", "cold_drug", "cold_cell"]
+    split_order = ["warm", "cold_target_pattern", "cold_cell"]
     panels = []
     for model_name, split_files in model_files:
         row = []

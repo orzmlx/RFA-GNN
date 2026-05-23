@@ -13,7 +13,7 @@ FIG_DIR = ROOT / "liuthesis_my" / "figures"
 SPLITS = ["warm", "cold_drug", "cold_cell"]
 SPLIT_TITLES = {
     "warm": "Warm",
-    "cold_drug": "Cold drug",
+    "cold_drug": "Cold drug target",
     "cold_cell": "Cold cell",
 }
 

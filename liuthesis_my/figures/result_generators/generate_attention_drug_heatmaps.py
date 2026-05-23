@@ -11,7 +11,7 @@ import pandas as pd
 
 ROOT = Path("/Users/liuxi/Desktop/RFA_GNN")
 OUT_DIR = ROOT / "liuthesis_my/figures"
-COLD_DRUG_NPZ = ROOT / "results/gat_hybrid_uncertainty_all_splits.eval.cold_drug.attn.npz"
+COLD_DRUG_NPZ = ROOT / "results/cold_target_pattern/cagnn_control_context.eval.cold_target_pattern.attn.npz"
 WARM_NPZ = ROOT / "results/gat_hybrid_uncertainty_all_splits.eval.warm.attn.npz"
 COLD_CELL_NPZ = ROOT / "results/gat_hybrid_uncertainty_all_splits.eval.cold_cell.attn.npz"
 GENE_INFO_PATH = ROOT / "data/GSE92742_Broad_LINCS_gene_info.txt"
@@ -24,7 +24,7 @@ ATTN_CMAP = LinearSegmentedColormap.from_list(
 TARGET_LINK_CONFIGS = [
     {
         "drug_id": "BRD-K86797399",
-        "title": "Cold drug: BRD-K86797399",
+        "title": "Cold drug target: BRD-K86797399",
         "focus_edges": [("NFE2L2", "TXNRD1"), ("NFE2L2", "SDHB")],
         "validated_paths": [
             ["HDAC2", "YY1", "MYC", "NFE2L2"],
@@ -59,6 +59,15 @@ def load_run(npz_path: Path):
             run[k] = v[0]
             continue
         run[k] = v
+    if "sample_pcc" not in run and str(npz_path).endswith(".attn.npz"):
+        base_path = Path(str(npz_path).replace(".attn.npz", ".npz"))
+        if base_path.exists():
+            z_base = np.load(base_path, allow_pickle=True)
+            run["_base_drug_ids"] = z_base["drug_ids"] if "drug_ids" in z_base.files else None
+            run["_base_trt_distil_ids"] = z_base["trt_distil_ids"] if "trt_distil_ids" in z_base.files else None
+            for k in z_base.files:
+                if k not in run:
+                    run[k] = z_base[k]
     return run
 
 
@@ -86,6 +95,8 @@ def load_drug_targets():
 def build_ranked_drug_table(run):
     pcc = np.asarray(run["sample_pcc"], dtype=float)
     drug_ids = np.asarray(run["drug_ids"], dtype=str)
+    if len(drug_ids) != len(pcc) and run.get("_base_drug_ids") is not None:
+        drug_ids = np.asarray(run["_base_drug_ids"], dtype=str)
     df = pd.DataFrame({"drug": drug_ids, "pcc": pcc})
     ranked = (
         df.groupby("drug")

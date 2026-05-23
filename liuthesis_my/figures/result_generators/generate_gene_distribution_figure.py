@@ -16,12 +16,12 @@ RUN_PATHS = {
     "Warm": {
         "DeepCOP": ROOT / "results" / "deepcop.pred.warm.npz",
         "GSNN": ROOT / "gsnn_res" / "gsnn_978_allcells_results.pred.warm.npz",
-        "CAGNN": ROOT / "results" / "hybrid_context" / "hybrid_context_budget_eval.full.warm.npz",
+        "CAGNN": ROOT / "results" / "cold_target_pattern" / "cagnn_control_context.eval.warm.npz",
     },
-    "Cold drug": {
-        "DeepCOP": ROOT / "results" / "deepcop.pred.cold_drug.npz",
-        "GSNN": ROOT / "gsnn_res" / "gsnn_978_allcells_results.pred.cold_drug.npz",
-        "CAGNN": ROOT / "results" / "gat_hybrid_uncertainty_all_splits.eval.cold_drug.npz",
+    "Cold drug target": {
+        "DeepCOP": ROOT / "results" / "cold_target_pattern" / "deepcop_cold_target_pattern.pred.cold_target_pattern.npz",
+        "GSNN": ROOT / "results" / "cold_target_pattern" / "gsnn_cold_target_pattern.pred.cold_target_pattern.npz",
+        "CAGNN": ROOT / "results" / "cold_target_pattern" / "cagnn_control_context.eval.cold_target_pattern.npz",
     },
     "Cold cell": {
         "DeepCOP": ROOT / "results" / "deepcop.pred.cold_cell.npz",

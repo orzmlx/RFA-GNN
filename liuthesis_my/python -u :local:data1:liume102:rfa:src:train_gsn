@@ -1,129 +1,53 @@
- python -u /local/data1/liume102/rfa/src/train_gsnn_eval.py \
-  --root /local/data1/liume102/rfa \
-  --cell_line ALL \
-  --use_landmark_genes \
-  --epochs 50 \
-  --batch_size 64 \
-  --max_samples 0 \
-  --channels 8 \
-  --layers 3 \
-  --dropout 0.1 \
-  --lr 1e-3 \
-  --weight_decay 1e-4 \
-  --norm none \
-  --split_modes warm,cold_drug,cold_cell \
-  --test_frac 0.2 \
-  --save_json /local/data1/liume102/rfa/gsnn/gsnn_978_allcells_results.json 
-
-python -u /local/data1/liume102/rfa/src/train_deepcop_original.py \
-  --root /local/data1/liume102/rfa \
-  --cell_line ALL \
-  --use_landmark_genes \
-  --pairing_mode multi_trt_multi_ctl \
-  --ctl_pair_k 3 \
-  --split_mode warm \
-  --test_frac 0.2 \
-  --epochs 50 \
-  --batch_size 256 \
-  --lr 5e-4 \
-  --dropout 0.2 \
-  --save_json /local/data1/liume102/rfa/result/deepcop_original_schemeA_warm.json \
-  --save_pred_prefix /local/data1/liume102/rfa/deepcop_orig/deepcop_original_schemeA_warm.pred \
-
-
-  python src/train_deepcop.py \
-  --cell_line ALL \
-  --drug_feature target \
-  --include_cell_onehot \
-  --pairing_mode multi_trt_multi_ctl \
-  --split_modes warm,cold_drug,cold_cell \
-  --save_json /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_results.json   \
-  --save_pred_prefix /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred
-
-
-
-cd /local/data1/liume102/rfa
-
-PYTHONPATH=/local/data1/liume102/rfa/src python src/train_deepcop_budget_eval.py \
-  --root /local/data1/liume102/rfa \
-  --cell_line ALL \
-  --split_mode warm \
-  --test_frac 0.2 \
-  --seed 42 \
-  --ctl_pair_k 3 \
-  --pairing_mode multi_trt_multi_ctl \
-  --epochs 50 \
-  --batch_size 64 \
-  --lr 5e-4 \
-  --dropout 0.2 \
-  --drug_feature target \
-  --predict_uncertainty \
-  --budgets one_shot,20%,30%,50%,80%,full \
-  --save_json /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_results.json \
-  --save_pred_prefix /local/data1/liume102/rfa/deepcop_res/deepcop_978_allcells_pred
-
-python src/train_gat_run_cf_drug_loss_control_context.py    --root /local/data1/liume102/rfa    --cell_line ALL    --split_modes cold_drug    --epochs 50    --batch_size 8    --hidden_dim 64    --num_heads 4    --dropout 0.2    --attention_layers 4    --ctl_pair_k 2    --pairing_mode multi_trt_multi_ctl    --test_frac 0.2    --cf_mode zero    --cf_lambda 1.0    --cf_margin 0.1    --pcc_lambda 5.0    --predict_uncertainty    --sparse_gat    --no-use_landmark_genes    --ctl_pair_k 2    --save_gat_weights /local/data1/liume102/rfa/gat_res/gat_context_attention_12328/model.weights.h5    --save_meta_json /local/data1/liume102/rfa/gat_res/gat_context_attention_12328/meta.json    --save_eval_npz /local/data1/liume102/rfa/gat_res/gat_context_attention_12328/eval.npz
-
-Epoch 12: pcc=0.4213 val_pcc=0.3853 loss_full=3.0974 loss_cf=3.1154 cf_gap=0.0180 loss_hinge=0.0961 target_scale=1.3228
-Epoch 13: pcc=0.4364 val_pcc=0.3935 loss_full=3.0839 loss_cf=3.1016 cf_gap=0.0177 loss_hinge=0.0956 target_scale=1.3376
-Epoch 14: pcc=0.4211 val_pcc=0.3803 loss_full=3.0708 loss_cf=3.0902 cf_gap=0.0194 loss_hinge=0.0947 target_scale=1.3521
-Epoch 15: pcc=0.4246 val_pcc=0.3831 loss_full=3.0592 loss_cf=3.0796 cf_gap=0.0204 loss_hinge=0.0938 target_scale=1.3669
-Epoch 16: pcc=0.4303 val_pcc=0.3898 loss_full=3.0497 loss_cf=3.0698 cf_gap=0.0200 loss_hinge=0.0939 target_scale=1.3803
-Epoch 17: pcc=0.4328 val_pcc=0.3890 loss_full=3.0398 loss_cf=3.0613 cf_gap=0.0216 loss_hinge=0.0925 target_scale=1.3921
-Epoch 18: pcc=0.4412 val_pcc=0.3936 loss_full=3.0190 loss_cf=3.0421 cf_gap=0.0230 loss_hinge=0.0907 target_scale=1.4072
-Epoch 19: pcc=0.4406 val_pcc=0.3909 loss_full=3.0000 loss_cf=3.0237 cf_gap=0.0237 loss_hinge=0.0897 target_scale=1.4234
-Epoch 20: pcc=0.4572 val_pcc=0.4021 loss_full=2.9807 loss_cf=3.0050 cf_gap=0.0243 loss_hinge=0.0896 target_scale=1.4378
-Epoch 21: pcc=0.4552 val_pcc=0.3955 loss_full=2.9654 loss_cf=2.9892 cf_gap=0.0237 loss_hinge=0.0897 target_scale=1.4534
-Epoch 22: pcc=0.4612 val_pcc=0.3983 loss_full=2.9493 loss_cf=2.9727 cf_gap=0.0234 loss_hinge=0.0902 target_scale=1.4690
-Epoch 23: pcc=0.4685 val_pcc=0.4014 loss_full=2.9303 loss_cf=2.9582 cf_gap=0.0279 loss_hinge=0.0873 target_scale=1.4815
-Epoch 24: pcc=0.4660 val_pcc=0.3980 loss_full=2.9176 loss_cf=2.9462 cf_gap=0.0286 loss_hinge=0.0865 target_scale=1.4951
-Epoch 25: pcc=0.4707 val_pcc=0.3937 loss_full=2.9098 loss_cf=2.9402 cf_gap=0.0303 loss_hinge=0.0855 target_scale=1.5084
-Epoch 26: pcc=0.4795 val_pcc=0.4040 loss_full=2.8969 loss_cf=2.9269 cf_gap=0.0300 loss_hinge=0.0863 target_scale=1.5207
-Epoch 27: pcc=0.4813 val_pcc=0.3993 loss_full=2.8892 loss_cf=2.9244 cf_gap=0.0352 loss_hinge=0.0834 target_scale=1.5332
-Epoch 28: pcc=0.4711 val_pcc=0.3959 loss_full=2.8792 loss_cf=2.9181 cf_gap=0.0389 loss_hinge=0.0808 target_scale=1.5510
-Epoch 29: pcc=0.4871 val_pcc=0.4053 loss_full=2.8647 loss_cf=2.9046 cf_gap=0.0399 loss_hinge=0.0804 target_scale=1.5632
-Epoch 30: pcc=0.4893 val_pcc=0.4005 loss_full=2.8519 loss_cf=2.8999 cf_gap=0.0479 loss_hinge=0.0766 target_scale=1.5780
-Epoch 31: pcc=0.4960 val_pcc=0.4074 loss_full=2.8515 loss_cf=2.9669 cf_gap=0.1154 loss_hinge=0.0426 target_scale=1.5923
-Epoch 32: pcc=0.4986 val_pcc=0.4030 loss_full=2.8351 loss_cf=2.9866 cf_gap=0.1515 loss_hinge=0.0303 target_scale=1.6071
-Epoch 33: pcc=0.5055 val_pcc=0.4080 loss_full=2.8118 loss_cf=2.9787 cf_gap=0.1669 loss_hinge=0.0261 target_scale=1.6214
-Epoch 34: pcc=0.5084 val_pcc=0.4080 loss_full=2.7906 loss_cf=2.9628 cf_gap=0.1722 loss_hinge=0.0235 target_scale=1.6361
-Epoch 35: pcc=0.5111 val_pcc=0.4053 loss_full=2.7671 loss_cf=2.9500 cf_gap=0.1829 loss_hinge=0.0190 target_scale=1.6512
-Epoch 36: pcc=0.5175 val_pcc=0.4105 loss_full=2.7473 loss_cf=2.9385 cf_gap=0.1912 loss_hinge=0.0171 target_scale=1.6652
-Epoch 37: pcc=0.5265 val_pcc=0.4099 loss_full=2.7292 loss_cf=2.9240 cf_gap=0.1948 loss_hinge=0.0153 target_scale=1.6755
-Epoch 38: pcc=0.5314 val_pcc=0.4157 loss_full=2.7089 loss_cf=2.9053 cf_gap=0.1963 loss_hinge=0.0150 target_scale=1.6860
-Epoch 39: pcc=0.5352 val_pcc=0.4142 loss_full=2.6914 loss_cf=2.8892 cf_gap=0.1978 loss_hinge=0.0146 target_scale=1.6971
-Epoch 40: pcc=0.5355 val_pcc=0.4198 loss_full=2.6753 loss_cf=2.8770 cf_gap=0.2017 loss_hinge=0.0145 target_scale=1.7077
-Epoch 41: pcc=0.5404 val_pcc=0.4169 loss_full=2.6607 loss_cf=2.8658 cf_gap=0.2051 loss_hinge=0.0135 target_scale=1.7201
-Epoch 42: pcc=0.5412 val_pcc=0.4181 loss_full=2.6475 loss_cf=2.8549 cf_gap=0.2074 loss_hinge=0.0137 target_scale=1.7301
-Epoch 43: pcc=0.5444 val_pcc=0.4152 loss_full=2.6364 loss_cf=2.8442 cf_gap=0.2077 loss_hinge=0.0135 target_scale=1.7405
-Epoch 44: pcc=0.5453 val_pcc=0.4173 loss_full=2.6251 loss_cf=2.8333 cf_gap=0.2082 loss_hinge=0.0135 target_scale=1.7516
-Epoch 45: pcc=0.5476 val_pcc=0.4196 loss_full=2.6129 loss_cf=2.8236 cf_gap=0.2107 loss_hinge=0.0131 target_scale=1.7610
-Epoch 46: pcc=0.5522 val_pcc=0.4224 loss_full=2.6057 loss_cf=2.8193 cf_gap=0.2137 loss_hinge=0.0136 target_scale=1.7693
-Epoch 47: pcc=0.5541 val_pcc=0.4190 loss_full=2.5965 loss_cf=2.8128 cf_gap=0.2163 loss_hinge=0.0128 target_scale=1.7780
-Epoch 48: pcc=0.5506 val_pcc=0.4188 loss_full=2.5896 loss_cf=2.8078 cf_gap=0.2182 loss_hinge=0.0125 target_scale=1.7864
-Epoch 49: pcc=0.5509 val_pcc=0.4114 loss_full=2.5821 loss_cf=2.7966 cf_gap=0.2146 loss_hinge=0.0136 target_scale=1.7934
-Epoch 50: pcc=0.5535 val_pcc=0.4170 loss_full=2.5759 loss_cf=2.7912 cf_gap=0.2154 loss_hinge=0.0130 target_scale=1.8010
-  
-
-  Epoch 20: pcc=0.5382 val_pcc=0.5075 loss_full=2.6664 loss_cf=2.6672 cf_gap=0.0008 loss_hinge=0.1006 target_scale=2.1155
-Epoch 21: pcc=0.5384 val_pcc=0.5076 loss_full=2.6515 loss_cf=2.6522 cf_gap=0.0008 loss_hinge=0.1005 target_scale=2.1289
-Epoch 22: pcc=0.5388 val_pcc=0.5081 loss_full=2.6405 loss_cf=2.6411 cf_gap=0.0006 loss_hinge=0.1006 target_scale=2.1390
-Epoch 23: pcc=0.5455 val_pcc=0.5144 loss_full=2.6301 loss_cf=2.6304 cf_gap=0.0003 loss_hinge=0.1007 target_scale=2.1477
-Epoch 24: pcc=0.5489 val_pcc=0.5179 loss_full=2.6176 loss_cf=2.6188 cf_gap=0.0012 loss_hinge=0.0999 target_scale=2.1604
-Epoch 25: pcc=0.5458 val_pcc=0.5141 loss_full=2.6109 loss_cf=2.6120 cf_gap=0.0011 loss_hinge=0.1000 target_scale=2.1763
-Epoch 26: pcc=0.5457 val_pcc=0.5135 loss_full=2.6019 loss_cf=2.6036 cf_gap=0.0017 loss_hinge=0.0994 target_scale=2.1822
-Epoch 27: pcc=0.5479 val_pcc=0.5158 loss_full=2.5948 loss_cf=2.5960 cf_gap=0.0013 loss_hinge=0.0998 target_scale=2.1922
-Epoch 28: pcc=0.5468 val_pcc=0.5161 loss_full=2.5898 loss_cf=2.5917 cf_gap=0.0019 loss_hinge=0.0989 target_scale=2.2035
-Epoch 29: pcc=0.5488 val_pcc=0.5169 loss_full=2.5825 loss_cf=2.5844 cf_gap=0.0019 loss_hinge=0.0990 target_scale=2.2124
-Epoch 30: pcc=0.5508 val_pcc=0.5173 loss_full=2.5795 loss_cf=2.5803 cf_gap=0.0008 loss_hinge=0.1000 target_scale=2.2227
-Epoch 31: pcc=0.5541 val_pcc=0.5211 loss_full=2.5731 loss_cf=2.5743 cf_gap=0.0013 loss_hinge=0.0996 target_scale=2.2280
-Epoch 32: pcc=0.5532 val_pcc=0.5195 loss_full=2.5688 loss_cf=2.5694 cf_gap=0.0006 loss_hinge=0.1003 target_scale=2.2326
-Epoch 33: pcc=0.5534 val_pcc=0.5197 loss_full=2.5654 loss_cf=2.5673 cf_gap=0.0019 loss_hinge=0.0991 target_scale=2.2401
-Epoch 34: pcc=0.5555 val_pcc=0.5216 loss_full=2.5619 loss_cf=2.5633 cf_gap=0.0014 loss_hinge=0.0994 target_scale=2.2457
-Epoch 35: pcc=0.5589 val_pcc=0.5240 loss_full=2.5565 loss_cf=2.5581 cf_gap=0.0016 loss_hinge=0.0992 target_scale=2.2548
-Epoch 36: pcc=0.5624 val_pcc=0.5269 loss_full=2.5527 loss_cf=2.5564 cf_gap=0.0037 loss_hinge=0.0973 target_scale=2.2583
-Epoch 37: pcc=0.5624 val_pcc=0.5294 loss_full=2.5498 loss_cf=2.5550 cf_gap=0.0051 loss_hinge=0.0960 target_scale=2.2688
-Epoch 38: pcc=0.5603 val_pcc=0.5265 loss_full=2.5456 loss_cf=2.5532 cf_gap=0.0076 loss_hinge=0.0938 target_scale=2.2765
-Epoch 39: pcc=0.5625 val_pcc=0.5255 loss_full=2.5426 loss_cf=2.5524 cf_gap=0.0098 loss_hinge=0.0919 target_scale=2.2829
-Epoch 40: pcc=0.5623 val_pcc=0.5272 loss_full=2.5409 loss_cf=2.5504 cf_gap=0.0096 loss_hinge=0.0923 target_scale=2.2922
-Last login: Sun May 10 12:53:37 2026 from 130.236.58.97
+Epoch 1: pcc=0.4368 val_pcc=0.4510 loss_full=4.2860 loss_cf=4.2871 cf_gap=0.0011 loss_hinge=0.0990 target_scale=0.7393
+Epoch 2: pcc=0.4634 val_pcc=0.4703 loss_full=3.5876 loss_cf=3.5876 cf_gap=-0.0000 loss_hinge=0.1000 target_scale=0.7717
+Epoch 3: pcc=0.4826 val_pcc=0.4795 loss_full=3.4684 loss_cf=3.4686 cf_gap=0.0003 loss_hinge=0.0997 target_scale=0.7926
+Epoch 4: pcc=0.4932 val_pcc=0.4823 loss_full=3.3726 loss_cf=3.3734 cf_gap=0.0008 loss_hinge=0.0992 target_scale=0.8111
+Epoch 5: pcc=0.5085 val_pcc=0.4955 loss_full=3.2955 loss_cf=3.2954 cf_gap=-0.0001 loss_hinge=0.1001 target_scale=0.8310
+Epoch 6: pcc=0.5223 val_pcc=0.4946 loss_full=3.2374 loss_cf=3.2383 cf_gap=0.0009 loss_hinge=0.0991 target_scale=0.8469
+Epoch 7: pcc=0.5285 val_pcc=0.4974 loss_full=3.1943 loss_cf=3.1957 cf_gap=0.0014 loss_hinge=0.0986 target_scale=0.8628
+Epoch 8: pcc=0.5301 val_pcc=0.5028 loss_full=3.1597 loss_cf=3.1603 cf_gap=0.0006 loss_hinge=0.0994 target_scale=0.8781
+Epoch 9: pcc=0.5394 val_pcc=0.4982 loss_full=3.1318 loss_cf=3.1329 cf_gap=0.0011 loss_hinge=0.0989 target_scale=0.8939
+Epoch 10: pcc=0.5338 val_pcc=0.5084 loss_full=3.1086 loss_cf=3.1108 cf_gap=0.0022 loss_hinge=0.0978 target_scale=0.9087
+Epoch 11: pcc=0.5442 val_pcc=0.5073 loss_full=3.0890 loss_cf=3.0949 cf_gap=0.0059 loss_hinge=0.0941 target_scale=0.9202
+Epoch 12: pcc=0.5412 val_pcc=0.5078 loss_full=3.0694 loss_cf=3.0768 cf_gap=0.0074 loss_hinge=0.0927 target_scale=0.9299
+Epoch 13: pcc=0.5485 val_pcc=0.5006 loss_full=3.0583 loss_cf=3.0677 cf_gap=0.0094 loss_hinge=0.0907 target_scale=0.9401
+Epoch 14: pcc=0.5450 val_pcc=0.5045 loss_full=3.0431 loss_cf=3.0583 cf_gap=0.0152 loss_hinge=0.0849 target_scale=0.9476
+Epoch 15: pcc=0.5496 val_pcc=0.5041 loss_full=3.0306 loss_cf=3.0474 cf_gap=0.0168 loss_hinge=0.0834 target_scale=0.9556
+Epoch 16: pcc=0.5541 val_pcc=0.5006 loss_full=3.0178 loss_cf=3.0367 cf_gap=0.0189 loss_hinge=0.0815 target_scale=0.9616
+Epoch 17: pcc=0.5552 val_pcc=0.5057 loss_full=3.0092 loss_cf=3.0294 cf_gap=0.0202 loss_hinge=0.0803 target_scale=0.9679
+Epoch 18: pcc=0.5539 val_pcc=0.5030 loss_full=3.0003 loss_cf=3.0222 cf_gap=0.0218 loss_hinge=0.0788 target_scale=0.9730
+Epoch 19: pcc=0.5594 val_pcc=0.4986 loss_full=2.9935 loss_cf=3.0251 cf_gap=0.0316 loss_hinge=0.0701 target_scale=0.9780
+Epoch 20: pcc=0.5591 val_pcc=0.4970 loss_full=2.9844 loss_cf=3.0245 cf_gap=0.0401 loss_hinge=0.0635 target_scale=0.9823
+Epoch 21: pcc=0.5629 val_pcc=0.4942 loss_full=2.9756 loss_cf=3.0211 cf_gap=0.0454 loss_hinge=0.0608 target_scale=0.9847
+Epoch 22: pcc=0.5638 val_pcc=0.4971 loss_full=2.9695 loss_cf=3.0186 cf_gap=0.0491 loss_hinge=0.0588 target_scale=0.9898
+Epoch 23: pcc=0.5599 val_pcc=0.4993 loss_full=2.9616 loss_cf=3.0140 cf_gap=0.0524 loss_hinge=0.0576 target_scale=0.9941
+Epoch 24: pcc=0.5613 val_pcc=0.4997 loss_full=2.9561 loss_cf=3.0114 cf_gap=0.0553 loss_hinge=0.0568 target_scale=0.9979
+Epoch 25: pcc=0.5650 val_pcc=0.4974 loss_full=2.9497 loss_cf=3.0084 cf_gap=0.0587 loss_hinge=0.0547 target_scale=1.0008
+Epoch 26: pcc=0.5601 val_pcc=0.4985 loss_full=2.9452 loss_cf=3.0048 cf_gap=0.0596 loss_hinge=0.0549 target_scale=1.0054
+Epoch 27: pcc=0.5651 val_pcc=0.4953 loss_full=2.9383 loss_cf=3.0003 cf_gap=0.0621 loss_hinge=0.0540 target_scale=1.0077
+Epoch 28: pcc=0.5677 val_pcc=0.4978 loss_full=2.9332 loss_cf=2.9995 cf_gap=0.0663 loss_hinge=0.0524 target_scale=1.0091
+Epoch 29: pcc=0.5682 val_pcc=0.4968 loss_full=2.9321 loss_cf=2.9977 cf_gap=0.0657 loss_hinge=0.0531 target_scale=1.0111
+Epoch 30: pcc=0.5692 val_pcc=0.4948 loss_full=2.9249 loss_cf=2.9934 cf_gap=0.0685 loss_hinge=0.0529 target_scale=1.0150
+Epoch 31: pcc=0.5672 val_pcc=0.4995 loss_full=2.9212 loss_cf=2.9919 cf_gap=0.0707 loss_hinge=0.0522 target_scale=1.0192
+Epoch 32: pcc=0.5692 val_pcc=0.5003 loss_full=2.9170 loss_cf=2.9867 cf_gap=0.0697 loss_hinge=0.0538 target_scale=1.0200
+Epoch 33: pcc=0.5713 val_pcc=0.4967 loss_full=2.9119 loss_cf=2.9814 cf_gap=0.0695 loss_hinge=0.0523 target_scale=1.0218
+Epoch 34: pcc=0.5714 val_pcc=0.4970 loss_full=2.9080 loss_cf=2.9797 cf_gap=0.0717 loss_hinge=0.0506 target_scale=1.0244
+Epoch 35: pcc=0.5679 val_pcc=0.4989 loss_full=2.9009 loss_cf=2.9733 cf_gap=0.0724 loss_hinge=0.0508 target_scale=1.0267
+Epoch 36: pcc=0.5727 val_pcc=0.4972 loss_full=2.9012 loss_cf=2.9737 cf_gap=0.0725 loss_hinge=0.0517 target_scale=1.0286
+Epoch 37: pcc=0.5738 val_pcc=0.5020 loss_full=2.8947 loss_cf=2.9695 cf_gap=0.0748 loss_hinge=0.0500 target_scale=1.0307
+Epoch 38: pcc=0.5752 val_pcc=0.4998 loss_full=2.8930 loss_cf=2.9649 cf_gap=0.0719 loss_hinge=0.0513 target_scale=1.0327
+Epoch 39: pcc=0.5721 val_pcc=0.5043 loss_full=2.8875 loss_cf=2.9621 cf_gap=0.0746 loss_hinge=0.0501 target_scale=1.0335
+Epoch 40: pcc=0.5732 val_pcc=0.5004 loss_full=2.8839 loss_cf=2.9620 cf_gap=0.0781 loss_hinge=0.0484 target_scale=1.0360
+Epoch 41: pcc=0.5757 val_pcc=0.4964 loss_full=2.8810 loss_cf=2.9574 cf_gap=0.0764 loss_hinge=0.0508 target_scale=1.0353
+Epoch 42: pcc=0.5786 val_pcc=0.4946 loss_full=2.8784 loss_cf=2.9559 cf_gap=0.0776 loss_hinge=0.0484 target_scale=1.0368
+Epoch 43: pcc=0.5763 val_pcc=0.4983 loss_full=2.8742 loss_cf=2.9520 cf_gap=0.0778 loss_hinge=0.0483 target_scale=1.0378
+Epoch 44: pcc=0.5792 val_pcc=0.4987 loss_full=2.8756 loss_cf=2.9507 cf_gap=0.0751 loss_hinge=0.0498 target_scale=1.0415
+Epoch 45: pcc=0.5785 val_pcc=0.4985 loss_full=2.8730 loss_cf=2.9490 cf_gap=0.0760 loss_hinge=0.0494 target_scale=1.0412
+Epoch 46: pcc=0.5785 val_pcc=0.4994 loss_full=2.8672 loss_cf=2.9480 cf_gap=0.0808 loss_hinge=0.0457 target_scale=1.0416
+Epoch 47: pcc=0.5771 val_pcc=0.5016 loss_full=2.8635 loss_cf=2.9446 cf_gap=0.0811 loss_hinge=0.0467 target_scale=1.0442
+Epoch 48: pcc=0.5776 val_pcc=0.5005 loss_full=2.8620 loss_cf=2.9422 cf_gap=0.0802 loss_hinge=0.0459 target_scale=1.0448
+Epoch 49: pcc=0.5786 val_pcc=0.5001 loss_full=2.8610 loss_cf=2.9402 cf_gap=0.0791 loss_hinge=0.0485 target_scale=1.0478
+Epoch 50: pcc=0.5809 val_pcc=0.5011 loss_full=2.8565 loss_cf=2.9389 cf_gap=0.0824 loss_hinge=0.0472 target_scale=1.0469
+Train | MSE: 0.6877 | Sample-wise PCC: 0.5778
+Test  | MSE: 1.3758 | Sample-wise PCC: 0.5014
+Sanity(drug_zero) | MSE: 1.3756 | Sample-wise PCC: 0.5016

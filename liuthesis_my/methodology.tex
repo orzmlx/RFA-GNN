@@ -1,23 +1,22 @@
 \chapter{Methodology}
-\noindent Unless otherwise stated, figures from this chapter were created by the author.
+\noindent This chapter presents the methodological design of the thesis. It covers the problem formulation, the proposed modell, related baseline models, and the experimental setup used for training and evaluation. Figures from this chapter were created by the author.
 
 \section{Target}
-This thesis studies prediction of gene expression changes after drug treatment. Let $G$ be the number of genes in the selected gene set. For each paired sample, the input includes a matched control profile $x_{\mathrm{ctl}}$ and a treated profile $x_{\mathrm{trt}}$. The training target is their difference:
+This thesis studies prediction of gene expression changes after drug treatment. The detailed construction of this target is described in Section~\ref{sec:prediction_target_construction}. In the model, the supervised target is defined as
 \begin{equation}
 y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}.
 \end{equation}
-This definition makes the target represent the change after treatment rather than the full expression state of the cell. It is intended to reduce the influence of the baseline cell state that is already reflected in the matched control profile, so the model can focus more directly on the effect of the drug. When treatment and control are measured in a similar setting, this subtraction can also reduce some shared technical noise, such as batch or plate effects.
-The model predicts a response vector $\hat{y}$.
+\noindent where $x_{\mathrm{ctl}}$ is the matched control profile and $x_{\mathrm{trt}}$ is the treated profile. The model predicts a response vector $\hat{y}$.
 
 \noindent For a mini batch of size $B$, the same target definition is applied sample by sample.
 
 \section{Inputs}
-\noindent A matched control profile, a drug representation, and cell related information are used as the three main inputs. These inputs use the same gene order, so the control vector, the drug vector, the graph matrix, and the predicted response all refer to the same gene positions.
+\noindent A matched control profile, a drug representation, and cell information are used as the three main inputs. These inputs use the same gene order, so the control vector, the drug vector, the graph matrix, and the predicted response.
 
 \subsection{Control data}
 The matched control profile $x_{\mathrm{ctl}}$ shows the baseline state of the cell before drug treatment. It is important because the same drug can produce different responses when the starting state is different. Some genes may already be active, while others may be weak. By using the control profile directly, the model can base its prediction on the measured state of the sample instead of relying on the drug input alone.
 
-\noindent In the main setup, $G=978$ landmark genes are used, so each control sample is a vector of continuous expression values. As shown in Figure~\ref{fig:ctl_node_projection}, each gene value is mapped to the corresponding graph node and projected to the hidden dimension. This gives every node a starting feature based on the measured control expression.
+\noindent In the main configuration, $G=978$ landmark genes are used, so each control sample is a vector of continuous expression values. As shown in Figure~\ref{fig:ctl_node_projection}, each gene value is mapped to the corresponding graph node and projected to the hidden dimension. This gives every node a starting feature based on the measured control expression.
 
 \begin{figure}[htbp]
     \centering
@@ -27,7 +26,7 @@ The matched control profile $x_{\mathrm{ctl}}$ shows the baseline state of the c
 \end{figure}
 
 \subsection{Drug target}
-The main drug input is a binary target vector $x_{\mathrm{drug}}$. Each entry is one when the corresponding gene is a known target of the drug, and zero otherwise. Some studies use richer drug features, but the main experiments in this thesis use only this target based vector.
+The main drug input is a binary target vector $x_{\mathrm{drug}}$. Each entry corresponds to one gene in the selected gene set. A value of 1 indicates that the gene is an annotated target of the drug, while a value of 0 indicates that no target relation is recorded for that gene.
 
 \begin{figure}[htbp]
     \centering
@@ -57,7 +56,7 @@ Here $h_u$ is the current representation of gene $u$. A positive sign keeps the 
 
 \subsection{Cell information}
 
-\noindent One approach uses a cell identity embedding. This is a very direct way to tell the model which cell line the sample comes from. Each cell line is assigned one learned vector, so all samples from the same cell line share the same representation. This can work well because cell background has a strong effect on gene expression. In other words, knowing the cell line already gives the model important information about the likely response pattern. At the same time, this also means that the model can rely heavily on the cell identity itself. The limitation is that samples from the same cell line are treated as if they were in the same state, even when their measured baseline profiles are different.
+\noindent We could directly uses a cell identity embedding. This is a very direct way to tell the model which cell line the sample comes from. Each cell line is assigned one learned vector, so all samples from the same cell line share the same representation. This can work well because cell background has a strong effect on gene expression. In other words, knowing the cell line already gives the model important information about the likely response pattern. At the same time, this also means that the model can rely heavily on the cell identity itself. The limitation is that samples from the same cell line are treated as if they were in the same state, even when their measured baseline profiles are different.
 
 \begin{figure}[htbp]
     \centering
@@ -81,14 +80,13 @@ Here $h_u$ is the current representation of gene $u$. A positive sign keeps the 
 \noindent Many studies in perturbation prediction use extra input features, such as molecular fingerprints, gene ontology features, or mutation profiles~\cite{woo2020deepcop,guo2026xpert,Rogers2010ECFP,Ashburner2000GO}. The main experiments in this thesis use a simpler input setting. All models use the matched control profile and the drug representation. The proposed model also uses cell context information, while the two baselines do not.
 
 \noindent This simpler design makes the comparison easier to follow. With fewer extra inputs, the comparison focuses more directly on the matched control profile, the drug input, and the added cell context.
-\FloatBarrier
 \section{Base model}
 \subsection{Overview}
 Figure~\ref{fig:base_model_structure} shows the baseline model. It is a fully connected design~\cite{woo2020deepcop}, without using a biological interaction graph. The output layer predicts a mean response and an uncertainty related value for each gene.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.63\linewidth]{figures/base_model_structure.png}
+    \includegraphics[width=0.56\linewidth]{figures/base_model_structure.png}
     \caption[Baseline Model Structure]{Structure of the baseline model. In the reported experiments, the input is the concatenation of the 978 dimensional control expression vector and the 978 dimensional drug target vector, giving an input shape of $[B,1956]$ for a mini batch of size $B$. The circles denote hidden units in fully connected layers, and the dotted vertical marks indicate omitted repeated units. The blue output boxes labeled $\mu$ denote the mean response predictions for the 978 genes, and the pink output boxes labeled $\log \sigma^{2}$ denote the corresponding log variance predictions.}
     \label{fig:base_model_structure}
 \end{figure}
@@ -147,7 +145,7 @@ The baseline model is trained on the same paired perturbation data and split set
     \end{tabular}
 \end{table}
 
-\noindent The parameter count of DeepCOP can also be written directly from the reported configuration. In the experiments, the model takes the control profile and the drug target vector as input, so the input width is $978 + 978 = 1956$. The hidden width is 1024 and the output contains both $\mu$ and $\log \sigma^2$. Table~\ref{tab:deepcop_param_count} shows the main trainable parts.
+\noindent The parameter count of DeepCOP can also be written directly from the reported configuration. The hidden width is 1024 and the output contains both $\mu$ and $\log \sigma^2$. Table~\ref{tab:deepcop_param_count} shows the main trainable parts.
 \begin{table}[htbp]
     \centering
     \caption[DeepCOP Parameter Count]{Trainable parameter count of DeepCOP under the reported configuration.}
@@ -156,8 +154,9 @@ The baseline model is trained on the same paired perturbation data and split set
         \hline
         Component & Calculation & Parameters \\
         \hline
-        Batch normalization & $2 \times 1956$ & 3912 \\
-        Dense block 1 & $1956 \times 1024 + 1024$ & 2003968 \\
+        Input width & $978 + 978$ & 1956 \\
+        Batch normalization & $2 \times (978 + 978)$ & 3912 \\
+        Dense block 1 & $(978 + 978) \times 1024 + 1024$ & 2003968 \\
         Batch normalization 1 & $2 \times 1024$ & 2048 \\
         Dense block 2 & $1024 \times 1024 + 1024$ & 1049600 \\
         Batch normalization 2 & $2 \times 1024$ & 2048 \\
@@ -212,8 +211,8 @@ so the model predicts one response value for each gene rather than the raw treat
         \hline
         Component & Calculation & Parameters \\
         \hline
-        Sparse input layer per block & $(4562 \times 8) + (978 \times 8)$ & 44320 \\
-        Sparse output layer per block & $(3584 \times 8) + 5540$ & 34212 \\
+        Input layer per block & $(4562 \times 8) + (978 \times 8)$ & 44320 \\
+        Output layer per block & $(3584 \times 8) + 5540$ & 34212 \\
         Node MLP per block & $(8 \times 64 + 64) + (2 \times 64) + (64 \times 8 + 8)$ & 1224 \\
         Residual scale per block & scalar & 1 \\
         One residual block total & $44320 + 34212 + 1224 + 1$ & 79757 \\
@@ -294,7 +293,7 @@ This form is used because the training objective is minimized. A larger Pearson 
 \begin{equation}
 \mathcal{L}_{\mathrm{full}}=\mathcal{L}_{\mathrm{nll}}+\lambda_{\mathrm{pcc}}\mathcal{L}_{\mathrm{pcc}}.
 \end{equation}
-The likelihood term reduces prediction error while learning an uncertainty estimate for each gene. The PCC term encourages agreement in the shape of the response profile across genes. In the implementation, $\lambda_{\mathrm{pcc}}$ is set empirically. Small preliminary tests with nearby values suggested that $\lambda_{\mathrm{pcc}}=5$ gave a reasonable balance between the likelihood term and the profile shape term.
+The likelihood term reduces prediction error while learning an uncertainty estimate for each gene. The PCC term encourages agreement in the shape of the response profile across genes. In the reported implementation, $\lambda_{\mathrm{pcc}}$ is set to 5.
 
 \noindent A related variant of the proposed model also adds a counterfactual drug loss. In that variant, one forward pass uses the true drug target vector and another uses a zero drug target vector. This extension is introduced to study how strongly the model depends on the drug signal, rather than to redefine the main benchmark. Let $\mathcal{L}_{\mathrm{cf}}$ denote the same prediction objective as $\mathcal{L}_{\mathrm{full}}$, but computed from the zero drug forward pass. In other words, the counterfactual branch still predicts a mean and a log variance, and its loss contains the same Gaussian likelihood term and the same Pearson correlation term computed separately for each sample, only under the zero drug input. The hinge penalty is
 \begin{equation}
@@ -304,7 +303,7 @@ The final objective is
 \begin{equation}
 \mathcal{L}=\mathcal{L}_{\mathrm{full}}+\lambda_{\mathrm{cf}}\mathcal{L}_{\mathrm{hinge}}.
 \end{equation}
-This term encourages the prediction with the real drug input to be better than the prediction with the zero drug input~\cite{hadsell2006contrastive, schroff2015facenet, wachter2017counterfactual}.
+This term encourages the prediction with the real drug input to be better than the prediction with the zero drug input.
 
 \subsection{Training settings}
 The proposed model is trained on the paired perturbation data with the same split settings used for the baselines. The main benchmark, the ablation analysis, the uncertainty analysis, and the warm split data efficiency study all keep the same graph backbone, uncertainty output, target definition, and split design. Optimization uses Adam with a fixed learning rate and mini batch training. In the counterfactual variant, one forward pass uses the true drug target vector and another uses a zero drug vector.
@@ -353,7 +352,7 @@ The proposed model is trained on the paired perturbation data with the same spli
         Context encoder layer 2 & $128 \times 64 + 64$ & 8256 \\
         Context gate & $64 \times 64 + 64$ & 4160 \\
         Per gene readout & $978 \times 64 + 978$ & 63570 \\
-        Four GAT blocks & $4 \times [4 \times (64 \times 16 + 2 \times 16) + 2 \times 64 + (64 \times 128 + 128) + (128 \times 64 + 64) + 2 \times 64]$ & 84224 \\
+        GAT blocks & $4 \times [4 \times (64 \times 16 + 2 \times 16) + 2 \times 64 + (64 \times 128 + 128) + (128 \times 64 + 64) + 2 \times 64]$ & 84224 \\
         \hline
         Total &  & 287734 \\
         \hline

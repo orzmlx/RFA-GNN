@@ -11,18 +11,18 @@ ROOT = Path("/Users/liuxi/Desktop/RFA_GNN")
 FIG_DIR = ROOT / "liuthesis_my" / "figures"
 LANDMARK_PATH = ROOT / "data" / "landmark_genes.json"
 SPLIT_PATHS = {
-    "Warm": ROOT / "results" / "hybrid_context" / "hybrid_context_budget_eval.full.warm.npz",
-    "Cold drug": ROOT / "results" / "gat_hybrid_uncertainty_all_splits.eval.cold_drug.npz",
-    "Cold cell": ROOT / "results" / "gat_hybrid_uncertainty_all_splits.eval.cold_cell.npz",
+    "Warm": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.warm.npz",
+    "Cold drug target": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.cold_target_pattern.npz",
+    "Cold cell": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.cold_cell.npz",
 }
 COLORS = {
     "Warm": {"fill": "#F6D7A7", "line": "#C48A2B"},
-    "Cold drug": {"fill": "#CFE1F5", "line": "#5C8FBD"},
+    "Cold drug target": {"fill": "#CFE1F5", "line": "#5C8FBD"},
     "Cold cell": {"fill": "#CFE8C7", "line": "#6FAF6A"},
 }
 MARKERS = {
     "Warm": "o",
-    "Cold drug": "s",
+    "Cold drug target": "s",
     "Cold cell": "^",
 }
 
