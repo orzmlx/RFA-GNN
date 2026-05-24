@@ -9,7 +9,7 @@ import numpy as np
 
 ROOT = Path("/Users/liuxi/Desktop/RFA_GNN")
 FIG_DIR = ROOT / "liuthesis_my" / "figures"
-NPZ_PATH = ROOT / "results" / "hybrid_context" / "hybrid_context_budget_eval.full.warm.npz"
+NPZ_PATH = ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.warm.npz"
 LANDMARK_PATH = ROOT / "data" / "landmark_genes.json"
 
 

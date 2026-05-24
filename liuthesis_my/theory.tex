@@ -11,14 +11,14 @@ A deep neural network maps an input to an output through several hidden layers. 
     \label{fig:fully_connect_network}
 \end{figure}
 
-\noindent In this figure, the input enters from the left and is transformed step by step through the hidden layers. The hidden layers are labeled as $h^{[1]}$ and $h^{[2]}$, and the input units are labeled as $x_{1}$, $x_{2}$, and $x_{3}$. A dense layer applies the same basic operation throughout such a network:
+\noindent In this figure, the input enters from the left and is transformed step by step through the hidden layers. The hidden layers are labeled as $h^{[1]}$ and $h^{[2]}$, and the input units are labeled as $x_{[1]}$, $x_{[2]}$, and $x_{[3]}$. A dense layer applies the same basic operation throughout such a network:
 \begin{equation}
 h = \sigma(Wx + b),
 \end{equation}
 where $W$ is a weight matrix, $b$ is a bias vector, and $h$ is the new hidden representation. The linear map $Wx+b$ is followed by an activation function $\sigma(\cdot)$ that adds nonlinearity. This nonlinearity is important because, without it, stacking several dense layers would still behave like one linear transformation. In the dense baseline used later, the hidden layers use ReLU activations, while the final regression output is left linear.
 
 \subsection{Counterfactual regularization}
-\noindent Counterfactual regularization compares two forward passes for the same sample. One pass uses the original input, and the other uses a modified version in which an important part of the input is removed or perturbed. If that missing part carries useful information, the original input should give a better prediction than the counterfactual input.
+\noindent Counterfactual regularization compares two forward passes for the same sample. One pass uses the original input, and the other uses a modified version in which an important part of the input is removed or perturbed. If that missing part carries useful information, the original input should give a better prediction than the counterfactual input. This follows the general idea of counterfactual learning, which studies model behavior under original and perturbed conditions~\cite{guo2025counterfactual_graphs}.
 
 \noindent In this thesis, this idea is used to encourage the model to rely on the drug signal instead of explaining the response mainly from the control profile and cell context alone.
 

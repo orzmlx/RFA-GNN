@@ -1,20 +1,18 @@
 \chapter{Methodology}
-\noindent This chapter presents the methodological design of the thesis. It covers the problem formulation, the proposed modell, related baseline models, and the experimental setup used for training and evaluation. Figures from this chapter were created by the author.
+\noindent This chapter presents the methodological design of the thesis. It covers the problem formulation, the proposed model, related baseline models, and the experimental setup used for training and evaluation. Figures from this chapter were created by the author.
 
 \section{Target}
 This thesis studies prediction of gene expression changes after drug treatment. The detailed construction of this target is described in Section~\ref{sec:prediction_target_construction}. In the model, the supervised target is defined as
 \begin{equation}
 y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}.
 \end{equation}
-\noindent where $x_{\mathrm{ctl}}$ is the matched control profile and $x_{\mathrm{trt}}$ is the treated profile. The model predicts a response vector $\hat{y}$.
-
-\noindent For a mini batch of size $B$, the same target definition is applied sample by sample.
+\noindent where $x_{\mathrm{ctl}}$ is the matched control profile and $x_{\mathrm{trt}}$ is the treated profile. The model predicts a response vector $\hat{y}$. For a mini batch of size $B$, the same target definition is applied sample by sample.
 
 \section{Inputs}
-\noindent A matched control profile, a drug representation, and cell information are used as the three main inputs. These inputs use the same gene order, so the control vector, the drug vector, the graph matrix, and the predicted response.
+\noindent A matched control profile, a drug representation, and cell information are used as the three main inputs. These inputs use the same gene order, so the control vector, the drug vector, the graph matrix, and the predicted response are all aligned gene by gene.
 
 \subsection{Control data}
-The matched control profile $x_{\mathrm{ctl}}$ shows the baseline state of the cell before drug treatment. It is important because the same drug can produce different responses when the starting state is different. Some genes may already be active, while others may be weak. By using the control profile directly, the model can base its prediction on the measured state of the sample instead of relying on the drug input alone.
+The matched control profile $x_{\mathrm{ctl}}$ represents the baseline state of the cell before drug treatment. In the model, it is used as the measured pre treatment input for each sample.
 
 \noindent In the main configuration, $G=978$ landmark genes are used, so each control sample is a vector of continuous expression values. As shown in Figure~\ref{fig:ctl_node_projection}, each gene value is mapped to the corresponding graph node and projected to the hidden dimension. This gives every node a starting feature based on the measured control expression.
 
@@ -56,7 +54,7 @@ Here $h_u$ is the current representation of gene $u$. A positive sign keeps the 
 
 \subsection{Cell information}
 
-\noindent We could directly uses a cell identity embedding. This is a very direct way to tell the model which cell line the sample comes from. Each cell line is assigned one learned vector, so all samples from the same cell line share the same representation. This can work well because cell background has a strong effect on gene expression. In other words, knowing the cell line already gives the model important information about the likely response pattern. At the same time, this also means that the model can rely heavily on the cell identity itself. The limitation is that samples from the same cell line are treated as if they were in the same state, even when their measured baseline profiles are different.
+\noindent Using a cell identity embedding is one option. In that case, each cell line is assigned one learned vector, so all samples from the same cell line share the same representation.
 
 \begin{figure}[htbp]
     \centering
@@ -65,7 +63,7 @@ Here $h_u$ is the current representation of gene $u$. A positive sign keeps the 
     \label{fig:cellid_embedding}
 \end{figure}
 
-\noindent Another approach uses cell context. Cell context means the state of one sample before the drug is applied. This information can be taken from the matched control profile~\cite{evans2024gsnn,guo2026xpert}, because the control profile is measured before treatment and shows which genes are already high or low in that sample. In this sense, it gives a snapshot of the sample before treatment. Even samples from the same cell line can have different baseline states, and these differences appear in the control expression values. Instead of using a fixed cell label, the model reads the full control profile $x_{\mathrm{ctl}}$ and converts it into a sample specific context vector $c_{\mathrm{ctx}}$.
+\noindent Another option is to use cell context. Here the matched control profile is encoded into a sample specific context vector $c_{\mathrm{ctx}}$~\cite{evans2024gsnn,guo2026xpert}. This uses the measured pre treatment expression state rather than a fixed cell label.
 
 \begin{figure}[htbp]
     \centering
@@ -74,7 +72,7 @@ Here $h_u$ is the current representation of gene $u$. A positive sign keeps the 
     \label{fig:cell_context}
 \end{figure}
 
-\noindent In the graph model used later in this thesis, the cell context vector $c_{\mathrm{ctx}}$ is copied to all $G$ gene nodes and added to their initial node features. This lets the graph network start from node features that reflect the current sample state before perturbation~\cite{guo2026xpert}.
+\noindent In the graph model used later in this thesis, the cell context vector $c_{\mathrm{ctx}}$ is copied to all $G$ gene nodes and added to their initial node features~\cite{guo2026xpert}.
 
 \subsection{Summary}
 \noindent Many studies in perturbation prediction use extra input features, such as molecular fingerprints, gene ontology features, or mutation profiles~\cite{woo2020deepcop,guo2026xpert,Rogers2010ECFP,Ashburner2000GO}. The main experiments in this thesis use a simpler input setting. All models use the matched control profile and the drug representation. The proposed model also uses cell context information, while the two baselines do not.
@@ -145,25 +143,25 @@ The baseline model is trained on the same paired perturbation data and split set
     \end{tabular}
 \end{table}
 
-\noindent The parameter count of DeepCOP can also be written directly from the reported configuration. The hidden width is 1024 and the output contains both $\mu$ and $\log \sigma^2$. Table~\ref{tab:deepcop_param_count} shows the main trainable parts.
+\noindent The parameter count of DeepCOP can also be written directly from the reported configuration. The hidden width is 1024 and the output contains both $\mu$ and $\log \sigma^2$. Table~\ref{tab:deepcop_param_count} shows the main trainable parts and their parameter counts. The detailed calculation steps are listed in Appendix~\ref{app:param_count_details}.
 \begin{table}[htbp]
     \centering
     \caption[DeepCOP Parameter Count]{Trainable parameter count of DeepCOP under the reported configuration.}
     \label{tab:deepcop_param_count}
-    \begin{tabular}{p{0.26\linewidth}p{0.46\linewidth}r}
+    \begin{tabular}{p{0.62\linewidth}r}
         \hline
-        Component & Calculation & Parameters \\
+        Component & Parameters \\
         \hline
-        Input width & $978 + 978$ & 1956 \\
-        Batch normalization & $2 \times (978 + 978)$ & 3912 \\
-        Dense block 1 & $(978 + 978) \times 1024 + 1024$ & 2003968 \\
-        Batch normalization 1 & $2 \times 1024$ & 2048 \\
-        Dense block 2 & $1024 \times 1024 + 1024$ & 1049600 \\
-        Batch normalization 2 & $2 \times 1024$ & 2048 \\
-        Mean output head & $1024 \times 978 + 978$ & 1002450 \\
-        Log variance output head & $1024 \times 978 + 978$ & 1002450 \\
+        Input width & 1956 \\
+        Batch normalization & 3912 \\
+        Dense block 1 & 2003968 \\
+        Batch normalization 1 & 2048 \\
+        Dense block 2 & 1049600 \\
+        Batch normalization 2 & 2048 \\
+        Mean output head & 1002450 \\
+        Log variance output head & 1002450 \\
         \hline
-        Total &  & 5066476 \\
+        Total & 5066476 \\
         \hline
     \end{tabular}
 \end{table}
@@ -171,7 +169,6 @@ The baseline model is trained on the same paired perturbation data and split set
 \noindent This gives about 5.07 million trainable parameters for DeepCOP in the reported setting.
 
 \noindent The baseline hyperparameters follow the original model setting as closely as possible, together with a small amount of task specific adjustment. A separate validation split was not introduced for systematic tuning, so these values should be read as practical benchmark settings rather than as fully optimized choices.
-\FloatBarrier
 \section{GSNN baseline}
 GSNN~\cite{evans2024gsnn} is the graph based baseline in this thesis. It is evaluated on the same paired perturbation data and the same biological graph as the proposed model, but the computation is different.
 
@@ -202,29 +199,28 @@ so the model predicts one response value for each gene rather than the raw treat
 \subsection{Training settings}
 \noindent GSNN is trained on the same paired perturbation data and under the same split settings as the proposed model. The same response target $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$ is used. Optimization uses mini batches and standard gradient based training. The implementation is adapted from the code released by the original authors, while the input interface is modified to match the data modalities available in this thesis. This keeps the comparison focused on the model design rather than on differences in the data pipeline.
 
-\noindent The trainable parameter count of GSNN also depends on the graph size. Under the reported setting, the graph contains 978 gene nodes and 1628 biological edges between function nodes before self loops are added. The implementation adds one self loop per function node. It also uses 8 hidden channels per node, 3 residual graph blocks, and a node MLP hidden width of 64. Table~\ref{tab:gsnn_param_count} summarizes the main trainable parts.
+\noindent The trainable parameter count of GSNN also depends on the graph size. Under the reported setting, the graph contains 978 gene nodes and 1628 biological edges between function nodes before self loops are added. The implementation adds one self loop per function node. It also uses 8 hidden channels per node, 3 residual graph blocks, and a node MLP hidden width of 64. Table~\ref{tab:gsnn_param_count} summarizes the main trainable parts. The detailed calculation steps are listed in Appendix~\ref{app:param_count_details}.
 \begin{table}[htbp]
     \centering
     \caption[GSNN Parameter Count]{Trainable parameter count of GSNN under the reported configuration.}
     \label{tab:gsnn_param_count}
-    \begin{tabular}{p{0.28\linewidth}p{0.44\linewidth}r}
+    \begin{tabular}{p{0.62\linewidth}r}
         \hline
-        Component & Calculation & Parameters \\
+        Component & Parameters \\
         \hline
-        Input layer per block & $(4562 \times 8) + (978 \times 8)$ & 44320 \\
-        Output layer per block & $(3584 \times 8) + 5540$ & 34212 \\
-        Node MLP per block & $(8 \times 64 + 64) + (2 \times 64) + (64 \times 8 + 8)$ & 1224 \\
-        Residual scale per block & scalar & 1 \\
-        One residual block total & $44320 + 34212 + 1224 + 1$ & 79757 \\
-        Three residual blocks & $3 \times 79757$ & 239271 \\
+        Input layer per block & 44320 \\
+        Output layer per block & 34212 \\
+        Node MLP per block & 1224 \\
+        Residual scale per block & 1 \\
+        One residual block total & 79757 \\
+        Three residual blocks & 239271 \\
         \hline
-        Total &  & 239271 \\
+        Total & 239271 \\
         \hline
     \end{tabular}
 \end{table}
 
 \noindent This gives about 0.24 million trainable parameters for GSNN in the reported setting.
-\FloatBarrier
 \section{Proposed model}
 \subsection{Overview}
 Figure~\ref{fig:proposed_model} shows the proposed model. It uses a graph attention network on a biological interaction graph and predicts one response value for each gene.
@@ -242,9 +238,9 @@ Figure~\ref{fig:proposed_model} shows the proposed model. It uses a graph attent
 The proposed model starts with one node per gene. The control profile provides one scalar input for each node, and the drug target vector provides another scalar input. These inputs are projected to a hidden dimension $F$. The initial node representation matrix is denoted by $H^{(0)}$.
 \noindent The control input and the drug target input are embedded separately, and the cell context is copied to all $G$ nodes before it is added:
 \begin{equation}
-H^{(0)} = \phi_{\mathrm{ctl}}(x_{\mathrm{ctl}}) + \phi_{\mathrm{drug}}(x_{\mathrm{drug}}) + \mathbf{1}_{G} c_{\mathrm{ctx}}^{\top}.
+H^{(0)} = \phi_{\mathrm{ctl}}(x_{\mathrm{ctl}}) + \phi_{\mathrm{drug}}(x_{\mathrm{drug}}) + C_{\mathrm{ctx}}.
 \end{equation}
-\noindent Here $\mathbf{1}_{G}$ is the all ones vector, so $\mathbf{1}_{G} c_{\mathrm{ctx}}^{\top}$ repeats the same context vector for every gene node.
+\noindent Here $C_{\mathrm{ctx}}$ denotes the matrix formed by repeating the same context vector $c_{\mathrm{ctx}}$ across all $G$ gene nodes.
 
 \noindent For a mini batch, the same node feature construction is applied to every sample.
 \noindent When cell information is added here, each gene node starts with control and drug signals together with information about the current cell state. Message passing therefore begins from a representation that already reflects the sample context.
@@ -295,7 +291,7 @@ This form is used because the training objective is minimized. A larger Pearson 
 \end{equation}
 The likelihood term reduces prediction error while learning an uncertainty estimate for each gene. The PCC term encourages agreement in the shape of the response profile across genes. In the reported implementation, $\lambda_{\mathrm{pcc}}$ is set to 5.
 
-\noindent A related variant of the proposed model also adds a counterfactual drug loss. In that variant, one forward pass uses the true drug target vector and another uses a zero drug target vector. This extension is introduced to study how strongly the model depends on the drug signal, rather than to redefine the main benchmark. Let $\mathcal{L}_{\mathrm{cf}}$ denote the same prediction objective as $\mathcal{L}_{\mathrm{full}}$, but computed from the zero drug forward pass. In other words, the counterfactual branch still predicts a mean and a log variance, and its loss contains the same Gaussian likelihood term and the same Pearson correlation term computed separately for each sample, only under the zero drug input. The hinge penalty is
+\noindent A related variant of the proposed model also adds a counterfactual drug loss, abbreviated here as the CF loss. Following the general idea of counterfactual learning~\cite{guo2025counterfactual_graphs}, one forward pass uses the true drug target vector and another uses a zero drug target vector. Let $\mathcal{L}_{\mathrm{cf}}$ denote the same prediction objective as $\mathcal{L}_{\mathrm{full}}$, but computed from the zero drug forward pass. The counterfactual branch therefore predicts the same outputs as the main branch, but under the zero drug input. The hinge penalty is
 \begin{equation}
 \mathcal{L}_{\mathrm{hinge}}=\max\!\left(0,\delta-\left(\mathcal{L}_{\mathrm{cf}}-\mathcal{L}_{\mathrm{full}}\right)\right).
 \end{equation}
@@ -328,41 +324,37 @@ The proposed model is trained on the paired perturbation data with the same spli
         Dropout & 0.2 \\
         Output & $\mu$ and $\log \sigma^{2}$ \\
         Pearson loss weight $\lambda_{\mathrm{pcc}}$ & 5 \\
-        Counterfactual weight $\lambda_{\mathrm{cf}}$ & 1 \\
-        Counterfactual margin $\delta$ & 0.1 \\
+        Counterfactual weight $\lambda_{\mathrm{cf}}$ & 5 \\
+        Counterfactual margin $\delta$ & 0.2 \\
         \hline
     \end{tabular}
 \end{table}
 
-\noindent The parameter count of the GAT control context model can also be written from the reported configuration. For the model size comparison, the count is based on the control context variant with hidden dimension 64, four graph attention layers, four heads, and a per gene readout. The control profile is used both as node level expression input and as the source of a separate context vector. Table~\ref{tab:cagnn_param_count} shows the main trainable parts.
+\noindent The parameter count of the GAT control context model can also be written from the reported configuration. For the model size comparison, the count is based on the control context variant with hidden dimension 64, four graph attention layers, four heads, and a per gene readout. The control profile is used both as node level expression input and as the source of a separate context vector. Table~\ref{tab:cagnn_param_count} shows the main trainable parts. The detailed calculation steps are listed in Appendix~\ref{app:param_count_details}. This gives about 0.29 million trainable parameters for the GAT control context model in the reported setting.
 \begin{table}[htbp]
     \centering
     \caption[Proposed Model Parameter Count]{Trainable parameter count of the GAT control context model under the reported configuration.}
     \label{tab:cagnn_param_count}
-    \begin{tabular}{p{0.28\linewidth}p{0.44\linewidth}r}
+    \begin{tabular}{p{0.62\linewidth}r}
         \hline
-        Component & Calculation & Parameters \\
+        Component & Parameters \\
         \hline
-        Expression embedding & $1 \times 64 + 64$ & 128 \\
-        Drug target embedding & $1 \times 64 + 64$ & 128 \\
-        % Target scale & scalar & 1 \\
-        % Context scale & scalar & 1 \\
-        Context layer normalization & $2 \times 978$ & 1956 \\
-        Context encoder layer 1 & $978 \times 128 + 128$ & 125312 \\
-        Context encoder layer 2 & $128 \times 64 + 64$ & 8256 \\
-        Context gate & $64 \times 64 + 64$ & 4160 \\
-        Per gene readout & $978 \times 64 + 978$ & 63570 \\
-        GAT blocks & $4 \times [4 \times (64 \times 16 + 2 \times 16) + 2 \times 64 + (64 \times 128 + 128) + (128 \times 64 + 64) + 2 \times 64]$ & 84224 \\
+        Expression embedding & 128 \\
+        Drug target embedding & 128 \\
+        Context layer normalization & 1956 \\
+        Context encoder layer 1 & 125312 \\
+        Context encoder layer 2 & 8256 \\
+        Context gate & 4160 \\
+        Per gene readout & 63570 \\
+        GAT blocks & 84224 \\
         \hline
-        Total &  & 287734 \\
+        Total & 287734 \\
         \hline
     \end{tabular}
 \end{table}
 
-\noindent This gives about 0.29 million trainable parameters for the GAT control context model in the reported setting.
 
 \noindent The reported configuration combines values inherited from related work with limited manual tuning under practical memory and runtime constraints. A dedicated validation split was not used for broad hyperparameter search. The reported setting should therefore be understood as a practical configuration for the present benchmark rather than as a fully tuned optimum.
-\FloatBarrier
 \section{Evaluation Metrics}
 \subsection{Split settings}
 \noindent Three split settings are used. Warm split uses a random sample split and evaluates performance on data that look similar to the training set. Cold drug target split holds out test drugs from training and measures how well the model works on drugs it has not seen before. Cold cell split holds out test cell lines from training and measures how well the model works on cell lines it has not seen before. In this pipeline, the training set uses multiple matched controls for each treatment profile.
@@ -466,5 +458,3 @@ Beyond the standard split settings, this thesis also includes a drug cell pair d
 \noindent The reason for testing settings such as one shot, 30\%, or 80\% is that they represent different amounts of available data. One shot is an extreme low data setting. It tests whether the model can still learn when each drug cell pair is seen only once. Mid range settings such as 30\% show whether the model improves steadily when more repeated measurements become available. Higher settings such as 80\% show whether performance is already near its highest point or whether the model still benefits from more data. Together, these settings make it possible to compare not only final accuracy, but also how the models improve as more training data are added.
 
 \noindent This design has a clear advantage. It prevents a few large drug cell pairs from dominating the reduced training set. If samples were removed at random, common pairs would still keep many examples, while rare pairs could disappear entirely. That would make the comparison less fair and less informative about data efficiency for each pair. With the pair based design, each observed drug cell combination remains represented, and the comparison focuses on how many repeated samples for each pair are needed.
-
-\noindent This design also has limitations. It does not test what happens when an entire drug cell pair is missing from training, because each observed pair still keeps at least one sample for any positive setting. For that reason, this experiment is best read as a repeated measurement data efficiency test, not as a new unseen pair test. But it is still relevant because drug response data are often limited and expensive to collect. A model that still works when only a few samples are available for each pair is useful in that setting.

@@ -1,8 +1,7 @@
 % !TeX root = thesis.tex
 \chapter{Data}
 
-This thesis uses two data sources. LINCS L1000 gene expression data show how cells respond to drug treatment. The OmniPath interaction database gives known information about how genes and proteins are linked. LINCS provides the drug response data, while OmniPath provides the graph used by the graph based models.
-\noindent Unless otherwise stated, figures from this chapter were created by the author.
+This thesis uses two data sources. One is a large perturbation gene expression dataset. Another is the cellular interaction database, which provides known information about how genes and proteins are linked. Unless otherwise stated, figures from this chapter were created by the author.
 
 \section{CMap LINCS Dataset}
 The NIH Common Fund’s Library of Integrated Network based Cellular Signatures (LINCS) provides large datasets for studying how cells respond to chemical and genetic changes. A major part of LINCS is the L1000 assay~\cite{l1000_paper}. The assay directly measures the expression of 978 landmark genes~\cite{l1000_paper}. These genes were chosen because they capture a large part of the change in gene expression across many biological conditions. The L1000 pipeline can also estimate additional genes from the measured landmark genes, which gives a wider gene space of 12,328 genes in total. The data are widely used because they cover many compounds, cell lines, and experimental conditions, together with matched control samples.
@@ -162,13 +161,6 @@ y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}.
 % \end{figure}
 
 \subsection{OmniPath graph preprocessing}
-\begin{figure}[!t]
-    \centering
-    \includegraphics[width=0.76\linewidth]{figures/overview_of_omnipath.png}
-    \caption[OmniPath Graph Construction]{Schematic overview of the OmniPath interaction tables and the graph construction used in this thesis. Each row in OmniPath describes a directed regulator to target relationship together with sign related fields (stimulation or inhibition) and consensus annotations. We filter to retain directed regulatory relationships with strong consensus and then convert the resulting edge list into a signed gene graph for downstream message passing.}
-    \label{fig:overview_of_omnipath}
-\end{figure}
-
 \noindent The interaction graph is constructed from OmniPath resources that provide directed control or interaction links. The resulting graph is matched to the selected gene space. Each row describes a source gene and a target gene together with sign information when available.
 
 \noindent OmniPath tables are provided in gene symbols. These symbols are mapped to the gene identifiers used by the expression matrices. Edges are kept only when both endpoints can be mapped and both genes are present in the selected gene set. This ensures that graph nodes, expression vectors, and drug target vectors all refer to the same ordered gene list.
@@ -176,6 +168,13 @@ y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}.
 \noindent The graph is represented as a directed edge list. When OmniPath provides sign annotations, each edge is assigned a sign value $w\in\{+1,-1\}$ for stimulation or inhibition. If sign information is missing, the edge can be excluded or treated as unknown, depending on the experiment setting.
 
 \noindent An interaction may appear multiple times across sources. Duplicate edges are merged so that each ordered pair $(u,v)$ appears once in the final graph. The resulting graph is stored as \texttt{edge\_index}, a $2\times E$ integer tensor, together with optional edge attributes such as signed weights. This representation is used directly by the graph neural network.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.76\linewidth]{figures/overview_of_omnipath.png}
+    \caption[OmniPath Graph Construction]{Schematic overview of the OmniPath interaction tables and the graph construction used in this thesis. Each row in OmniPath describes a directed regulator to target relationship together with sign related fields (stimulation or inhibition) and consensus annotations. We filter to retain directed regulatory relationships with strong consensus and then convert the resulting edge list into a signed gene graph for downstream message passing.}
+    \label{fig:overview_of_omnipath}
+\end{figure}
 
 \noindent In the landmark gene setting used in this thesis, the resulting OmniPath graph contains $978$ nodes and $1{,}627$ directed edges after filtering and deduplication. The node set matches the 978 dimensional landmark expression space, so graph outputs align directly with the prediction targets. When the full gene space is used, the constructed graph contains $12{,}328$ nodes and $26{,}166$ directed edges under the same preprocessing settings.
 

@@ -57,7 +57,7 @@ We focus on whether a graph based model can predict gene expression changes afte
 
 \noindent The aims of this thesis are:
 \begin{enumerate}
-    \item To build a graph neural network (GNN) based on the OmniPath molecular interaction network. This model predicts drug related gene expression changes by combining baseline cell data and drug target information.
+    \item To build a graph neural network (GNN) based on the molecular interaction network. This model predicts drug related gene expression changes by combining baseline cell data and drug target information.
     \item To test how well the model works on unseen drug targets and unseen cell lines where test drugs' targets or cells were never seen during training.
     \item To compare this model with baseline models that do not use a gene network.
 \end{enumerate}
@@ -73,7 +73,7 @@ We focus on whether a graph based model can predict gene expression changes afte
 \noindent Figure~\ref{fig:gene_network_gnn} gives a simple view of this modeling idea. In this approach, the GNN is designed to reflect the structure of the known gene interaction network, so the molecular network defines how information can propagate from drug targets to downstream genes.
 
 \section{Related works}
-Graph neural networks are now widely used in biology because many biological systems can be represented as graphs. A recent review summarizes GNN applications in single cell omics and discusses common architectures such as GCN, GraphSAGE, and GAT~\cite{li2025gnn_sc_review, scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}. These models are useful because each node can update its representation by using both its own features and information from connected neighbours. In biology, this makes them a natural choice for pathways, control links, and other structured molecular systems.
+Graph neural networks are now widely used in biology because many biological systems can be represented as graphs. A recent review summarizes GNN applications in single cell omics and discusses common architectures such as Graph Convolutional Network (GCN), GraphSAGE, and Graph Attention Network (GAT)~\cite{li2025gnn_sc_review, scarselli2009gnn, kipf2017semi, hamilton2017inductive, velickovic2018graph}. These models are useful because each node can update its representation by using both its own features and information from connected neighbours. In biology, this makes them a natural choice for pathways, control links, and other structured molecular systems.
 
 \noindent More recent graph models also use Transformer style block designs. Graphormer shows that a standard Transformer architecture, combined with graph specific structural encodings, can work well for graph representation learning~\cite{ying2021graphormer}. GraphGPS extends this direction with a modular graph Transformer design that combines local message passing with global attention and reports strong performance across many graph tasks~\cite{rampasek2022graphgps}. These studies are important here because they support the broader idea that attention, FFN, residual connections, and normalization can also form useful repeated blocks in graph models.
 

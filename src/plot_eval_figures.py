@@ -208,8 +208,11 @@ class ExportArgs:
 
 def export_predictions(args: ExportArgs):
     from data_loader import load_rfa_data, build_combined_gnn
-    if str(getattr(args, "model_kind", "baseline")).strip().lower() == "hybrid_context":
+    model_kind = str(getattr(args, "model_kind", "baseline")).strip().lower()
+    if model_kind == "hybrid_context":
         from base_gnn_hybrid_context import BaseLineGATHybridContext as ModelClass
+    elif model_kind == "control_context":
+        from base_gnn_control_context import BaseLineGATControlContext as ModelClass
     else:
         from base_gnn import BaseLineGAT as ModelClass
 
@@ -1075,7 +1078,7 @@ def build_cli():
     e.add_argument("--eval_sanity_seed", type=int, default=0)
     e.add_argument("--eval_sanity_max_eval", type=int, default=20000)
     e.add_argument("--test_ids_npy", default="")
-    e.add_argument("--model_kind", choices=["baseline", "hybrid_context"], default="baseline")
+    e.add_argument("--model_kind", choices=["baseline", "hybrid_context", "control_context"], default="baseline")
     e.add_argument("--predict_uncertainty", action="store_true", default=False)
     e.add_argument("--cell_dropout_rate", type=float, default=0.2)
     e.add_argument("--export_attention", action="store_true", default=False)

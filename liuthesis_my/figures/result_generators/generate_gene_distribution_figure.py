@@ -14,19 +14,22 @@ DATA_DIR = ROOT / "data"
 
 RUN_PATHS = {
     "Warm": {
-        "DeepCOP": ROOT / "results" / "deepcop.pred.warm.npz",
-        "GSNN": ROOT / "gsnn_res" / "gsnn_978_allcells_results.pred.warm.npz",
-        "CAGNN": ROOT / "results" / "cold_target_pattern" / "cagnn_control_context.eval.warm.npz",
+        "DeepCOP": ROOT / "outputs" / "deepcop_uncertainty_0524" / "deepcop_uncertainty.pred.warm.npz",
+        "GSNN": ROOT / "outputs" / "gsnn_0524" / "gsnn_results.pred.warm.npz",
+        "no-CF": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.warm.npz",
+        "CF": ROOT / "outputs" / "with_cf_gat_0524" / "cagnn_control_context.eval.warm.npz",
     },
     "Cold drug target": {
-        "DeepCOP": ROOT / "results" / "cold_target_pattern" / "deepcop_cold_target_pattern.pred.cold_target_pattern.npz",
-        "GSNN": ROOT / "results" / "cold_target_pattern" / "gsnn_cold_target_pattern.pred.cold_target_pattern.npz",
-        "CAGNN": ROOT / "results" / "cold_target_pattern" / "cagnn_control_context.eval.cold_target_pattern.npz",
+        "DeepCOP": ROOT / "outputs" / "deepcop_uncertainty_0524" / "deepcop_uncertainty.pred.cold_target_pattern.npz",
+        "GSNN": ROOT / "outputs" / "gsnn_0524" / "gsnn_results.pred.cold_target_pattern.npz",
+        "no-CF": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.cold_target_pattern.npz",
+        "CF": ROOT / "outputs" / "with_cf_gat_0524" / "cagnn_control_context.eval.cold_target_pattern.npz",
     },
     "Cold cell": {
-        "DeepCOP": ROOT / "results" / "deepcop.pred.cold_cell.npz",
-        "GSNN": ROOT / "gsnn_res" / "gsnn_978_allcells_results.pred.cold_cell.npz",
-        "CAGNN": ROOT / "results" / "gat_hybrid_uncertainty_all_splits.eval.cold_cell.npz",
+        "DeepCOP": ROOT / "outputs" / "deepcop_uncertainty_0524" / "deepcop_uncertainty.pred.cold_cell.npz",
+        "GSNN": ROOT / "outputs" / "gsnn_0524" / "gsnn_results.pred.cold_cell.npz",
+        "no-CF": ROOT / "outputs" / "no_cf_0523" / "ugat_no_cf_uncertainty_sparse.eval.cold_cell.npz",
+        "CF": ROOT / "outputs" / "with_cf_gat_0524" / "cagnn_control_context.eval.cold_cell.npz",
     },
 }
 
@@ -34,7 +37,8 @@ COLORS = {
     "Truth": "#D9D9D9",
     "DeepCOP": "#C9DDF2",
     "GSNN": "#F7D8B5",
-    "CAGNN": "#CFE8C7",
+    "no-CF": "#CFE8C7",
+    "CF": "#F4C7CF",
 }
 
 
@@ -59,10 +63,10 @@ def load_run(path):
 
 
 def gene_ids_for_split(split_runs):
-    cagnn = split_runs["CAGNN"]
-    if "target_genes" in cagnn:
-        return np.asarray(cagnn["target_genes"], dtype=str)
-    return np.asarray([str(i) for i in range(cagnn["y_true"].shape[1])], dtype=str)
+    no_cf = split_runs["no-CF"]
+    if "target_genes" in no_cf:
+        return np.asarray(no_cf["target_genes"], dtype=str)
+    return np.asarray([str(i) for i in range(no_cf["y_true"].shape[1])], dtype=str)
 
 
 def top_gene_indices(y_true, top_k=12):
@@ -71,8 +75,8 @@ def top_gene_indices(y_true, top_k=12):
 
 
 def add_box_group(ax, base_x, arrays, width=0.16):
-    offsets = np.array([-0.27, -0.09, 0.09, 0.27])
-    labels = ["Truth", "DeepCOP", "GSNN", "CAGNN"]
+    offsets = np.array([-0.36, -0.18, 0.0, 0.18, 0.36])
+    labels = ["Truth", "DeepCOP", "GSNN", "no-CF", "CF"]
     for offset, label, values in zip(offsets, labels, arrays):
         bp = ax.boxplot(
             values,
@@ -99,17 +103,18 @@ def main():
     fig, axes = plt.subplots(3, 1, figsize=(18, 13.5), dpi=220, sharey=False)
 
     for ax, (split_name, split_runs) in zip(axes, loaded.items()):
-        y_true = np.asarray(split_runs["CAGNN"]["y_true"], dtype=np.float32)
+        y_true = np.asarray(split_runs["no-CF"]["y_true"], dtype=np.float32)
         gene_ids = gene_ids_for_split(split_runs)
         idx = top_gene_indices(y_true, top_k=12)
         gene_labels = [symbol_map.get(gene_ids[i], gene_ids[i]) for i in idx]
 
         for xpos, gene_idx in enumerate(idx):
             arrays = [
-                np.asarray(split_runs["CAGNN"]["y_true"][:, gene_idx], dtype=np.float32),
+                np.asarray(split_runs["no-CF"]["y_true"][:, gene_idx], dtype=np.float32),
                 np.asarray(split_runs["DeepCOP"]["y_pred"][:, gene_idx], dtype=np.float32),
                 np.asarray(split_runs["GSNN"]["y_pred"][:, gene_idx], dtype=np.float32),
-                np.asarray(split_runs["CAGNN"]["y_pred"][:, gene_idx], dtype=np.float32),
+                np.asarray(split_runs["no-CF"]["y_pred"][:, gene_idx], dtype=np.float32),
+                np.asarray(split_runs["CF"]["y_pred"][:, gene_idx], dtype=np.float32),
             ]
             add_box_group(ax, xpos, arrays)
 
@@ -123,10 +128,10 @@ def main():
 
     handles = [
         plt.Rectangle((0, 0), 1, 1, facecolor=COLORS[name], edgecolor="#7A7A7A")
-        for name in ["Truth", "DeepCOP", "GSNN", "CAGNN"]
+        for name in ["Truth", "DeepCOP", "GSNN", "no-CF", "CF"]
     ]
-    fig.legend(handles, ["Truth", "DeepCOP", "GSNN", "CAGNN"], ncol=4, frameon=False, loc="upper center")
-    fig.tight_layout(rect=[0, 0, 1, 0.965])
+    fig.legend(handles, ["Truth", "DeepCOP", "GSNN", "no-CF", "CF"], ncol=5, frameon=False, loc="upper center")
+    fig.tight_layout(rect=[0, 0, 1, 0.955])
 
     png_path = FIG_DIR / "xpert_style_gene_distribution.png"
     pdf_path = FIG_DIR / "xpert_style_gene_distribution.pdf"

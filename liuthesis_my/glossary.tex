@@ -1,0 +1,21 @@
+% !TeX root = thesis.tex
+\chapter*{Glossary}
+\phantomsection
+\addcontentsline{toc}{chapter}{Glossary}
+
+\noindent This section gives short explanations of important terms used throughout the thesis.
+
+\begin{description}
+\item[Biological graph] A directed graph built from prior molecular interactions, used to define how information can move between genes in the proposed model.
+\item[Cell context] A sample specific vector derived from the matched control profile. It summarizes the baseline state of the cell before drug treatment.
+\item[Cell identity embedding] A learned vector assigned to each cell line. All samples from the same cell line share the same embedding.
+\item[Warm split] Evaluation split in which training and test samples come from similar observed conditions, so no major entity type is fully held out.
+\item[Cold cell split] Evaluation split in which the test cell lines are not seen during training.
+\item[Cold drug target split] Evaluation split in which the test drugs are held out from training to test generalization to unseen drug target patterns.
+\item[Counterfactual drug loss] Training term that compares the normal drug input with a zero drug version in order to encourage the model to rely on the perturbation signal.
+\item[Drug target vector] Binary vector that marks which genes are annotated targets of the drug.
+\item[Landmark genes] The measured subset of 978 genes used in the LINCS L1000 assay.
+\item[Perturbation] A change applied to a biological system, here caused by drug treatment.
+\item[Response profile] The vector of gene expression changes caused by the drug, relative to the matched control profile.
+\item[Uncertainty output] The predicted variance or log variance that estimates how confident the model is about each gene level prediction.
+\end{description}

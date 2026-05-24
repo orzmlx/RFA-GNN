@@ -9,7 +9,7 @@
 \usepackage{amsmath, amssymb}
 \usepackage{tikz}
 \usepackage{hyperref}
-\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue, citecolor=blue}
 
 % Keep float-only pages top-aligned instead of vertically centered.
 \makeatletter
@@ -17,6 +17,13 @@
 \setlength{\@fpsep}{12pt}
 \setlength{\@fpbot}{0pt plus 1fil}
 \makeatother
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.8}
 
 % ------------------------------------------------------------
 % Chapter style (Memoir): VZ43
