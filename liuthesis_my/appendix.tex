@@ -68,3 +68,23 @@
         \hline
     \end{tabular}
 \end{table}
+
+\chapter{Full Gene Space Supplementary Results}
+\label{app:full_gene_space_results}
+
+\noindent In addition to the main benchmark on the 978 landmark genes, a small supplementary run was also carried out in the full gene space with 12,328 genes. This experiment is included only as supporting information. It should not be compared directly with the main results in the thesis. The reason is that the full gene space run used a different practical configuration under tighter memory and runtime constraints. In particular, it did not use the uncertainty output and it did not use the counterfactual drug loss. The reported values should therefore be read as a limited point prediction check in the larger gene space rather than as an alternative main benchmark.
+
+\begin{table}[htbp]
+    \centering
+    \caption[Supplementary Results in the 12,328 Gene Space]{Supplementary point prediction results in the full 12,328 gene space. These runs use a different practical configuration from the main 978 gene benchmark and do not include the uncertainty output or the counterfactual drug loss.}
+    \label{tab:full_gene_space_results}
+    \begin{tabular}{lcc}
+        \hline
+        Split & Test MSE & Test PCC \\
+        \hline
+        Warm & 0.8190 & 0.5617 \\
+        Cold drug target & 0.5062 & 0.5431 \\
+        Cold cell & 0.5466 & 0.4154 \\
+        \hline
+    \end{tabular}
+\end{table}

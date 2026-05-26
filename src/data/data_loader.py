@@ -689,7 +689,8 @@ def load_go_fingerprints(file_path, gene_list):
     return aligned_matrix
 
 
-def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42, drug_target_matrix=None):
+def create_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42, drug_target_matrix=None):
+    """Create train/test masks for paired treatment anchors under different split modes."""
     split_mode = str(split_mode).strip()
     if test_frac <= 0.0 or test_frac >= 1.0:
         raise ValueError("--test_frac 需要在 (0, 1) 之间")
@@ -747,9 +748,22 @@ def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42,
     raise ValueError(f"未知 split_mode: {split_mode}")
 
 
-def subset_anchor_data(data, indices):
+def build_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42, drug_target_matrix=None):
+    """Backward-compatible alias for `create_pair_split_masks()`."""
+    return create_pair_split_masks(
+        split_mode,
+        drug_ids,
+        cell_names,
+        test_frac,
+        seed=seed,
+        drug_target_matrix=drug_target_matrix,
+    )
+
+
+def slice_anchor_data(anchor_data, indices):
+    """Slice anchor-aligned arrays/lists while preserving the rest of the data dict."""
     idx = np.asarray(indices)
-    out = dict(data)
+    sliced_data = dict(anchor_data)
     array_keys = [
         "anchor_X_trt",
         "anchor_X_drug",
@@ -763,16 +777,22 @@ def subset_anchor_data(data, indices):
         "anchor_batch_ids",
         "anchor_det_plate_ids",
     ]
-    for k in array_keys:
-        if k in out and out[k] is not None:
-            out[k] = np.asarray(out[k])[idx]
-    if "anchor_ctl_candidates" in out and out["anchor_ctl_candidates"] is not None:
-        candidates = out["anchor_ctl_candidates"]
-        out["anchor_ctl_candidates"] = [list(candidates[int(i)]) for i in idx.tolist()]
-    return out
+    for key in array_keys:
+        if key in sliced_data and sliced_data[key] is not None:
+            sliced_data[key] = np.asarray(sliced_data[key])[idx]
+    if "anchor_ctl_candidates" in sliced_data and sliced_data["anchor_ctl_candidates"] is not None:
+        control_candidates = sliced_data["anchor_ctl_candidates"]
+        sliced_data["anchor_ctl_candidates"] = [list(control_candidates[int(i)]) for i in idx.tolist()]
+    return sliced_data
 
 
-def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
+def subset_anchor_data(data, indices):
+    """Backward-compatible alias for `slice_anchor_data()`."""
+    return slice_anchor_data(data, indices)
+
+
+def split_control_pools(train_candidates, test_candidates, seed=42):
+    """Split shared control candidates into disjoint train/test control pools."""
     train_candidates = [[str(c) for c in cands] for cands in train_candidates]
     test_candidates = [[str(c) for c in cands] for cands in test_candidates]
     train_used = set()
@@ -787,22 +807,22 @@ def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
     shared = set(train_used & test_used)
     rng = np.random.default_rng(int(seed))
 
-    def _prepare(side_candidates, allowed):
+    def collect_unmet_anchor_controls(side_candidates, allowed_controls):
         unmet = set()
         anchor_to_shared = {}
         shared_to_anchors = {}
-        for i, cands in enumerate(side_candidates):
-            has_unique = any(c in allowed for c in cands)
-            shared_list = [c for c in cands if c in shared]
-            anchor_to_shared[i] = shared_list
+        for anchor_idx, candidates in enumerate(side_candidates):
+            has_unique = any(candidate in allowed_controls for candidate in candidates)
+            shared_list = [candidate for candidate in candidates if candidate in shared]
+            anchor_to_shared[anchor_idx] = shared_list
             if not has_unique:
-                unmet.add(i)
-                for ctl_id in shared_list:
-                    shared_to_anchors.setdefault(ctl_id, []).append(i)
+                unmet.add(anchor_idx)
+                for control_id in shared_list:
+                    shared_to_anchors.setdefault(control_id, []).append(anchor_idx)
         return unmet, anchor_to_shared, shared_to_anchors
 
-    train_unmet, train_anchor_to_shared, train_shared_to_anchors = _prepare(train_candidates, train_allowed)
-    test_unmet, test_anchor_to_shared, test_shared_to_anchors = _prepare(test_candidates, test_allowed)
+    train_unmet, train_anchor_to_shared, train_shared_to_anchors = collect_unmet_anchor_controls(train_candidates, train_allowed)
+    test_unmet, test_anchor_to_shared, test_shared_to_anchors = collect_unmet_anchor_controls(test_candidates, test_allowed)
 
     train_cover = {ctl_id: len(anchors) for ctl_id, anchors in train_shared_to_anchors.items()}
     test_cover = {ctl_id: len(anchors) for ctl_id, anchors in test_shared_to_anchors.items()}
@@ -812,7 +832,7 @@ def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
         score = max(train_cover.get(ctl_id, 0), test_cover.get(ctl_id, 0))
         heapq.heappush(heap, (-score, ctl_id))
 
-    def _resolve_anchor(side, anchor_idx):
+    def mark_anchor_satisfied(side, anchor_idx):
         if side == "train":
             if anchor_idx not in train_unmet:
                 return
@@ -856,11 +876,11 @@ def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
         if side == "train":
             train_allowed.add(ctl_id)
             for anchor_idx in train_shared_to_anchors.get(ctl_id, []):
-                _resolve_anchor("train", anchor_idx)
+                mark_anchor_satisfied("train", anchor_idx)
         else:
             test_allowed.add(ctl_id)
             for anchor_idx in test_shared_to_anchors.get(ctl_id, []):
-                _resolve_anchor("test", anchor_idx)
+                mark_anchor_satisfied("test", anchor_idx)
 
     remaining = [ctl_id for ctl_id in shared if ctl_id not in assigned_side]
     rng.shuffle(remaining)
@@ -884,40 +904,52 @@ def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
     return train_allowed, test_allowed, train_filtered, test_filtered, stats
 
 
-def filter_ctl_pool(data, allowed_ctl_ids):
-    ctl_pool_ids = np.asarray(data["ctl_pool_ids"], dtype=object)
-    ctl_pool_expr = np.asarray(data["ctl_pool_expr"], dtype=np.float32)
-    allowed = set([str(x) for x in allowed_ctl_ids])
-    keep_idx = [i for i, cid in enumerate(ctl_pool_ids.tolist()) if str(cid) in allowed]
+def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
+    """Backward-compatible alias for `split_control_pools()`."""
+    return split_control_pools(train_candidates, test_candidates, seed=seed)
+
+
+def filter_control_pool(dataset, allowed_control_ids):
+    """Filter the cached control pool down to a selected subset of control ids."""
+    ctl_pool_ids = np.asarray(dataset["ctl_pool_ids"], dtype=object)
+    ctl_pool_expr = np.asarray(dataset["ctl_pool_expr"], dtype=np.float32)
+    allowed_control_ids = {str(control_id) for control_id in allowed_control_ids}
+    keep_idx = [i for i, cid in enumerate(ctl_pool_ids.tolist()) if str(cid) in allowed_control_ids]
     if len(keep_idx) == 0:
-        num_genes = int(ctl_pool_expr.shape[1]) if ctl_pool_expr.ndim == 2 and ctl_pool_expr.shape[1] > 0 else int(data["input_dim"])
+        num_genes = int(ctl_pool_expr.shape[1]) if ctl_pool_expr.ndim == 2 and ctl_pool_expr.shape[1] > 0 else int(dataset["input_dim"])
         return np.asarray([], dtype=object), np.zeros((0, num_genes), dtype=np.float32)
     keep_idx = np.asarray(keep_idx, dtype=np.int32)
     return ctl_pool_ids[keep_idx], ctl_pool_expr[keep_idx]
 
 
-def materialize_paired_dataset(data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
+def filter_ctl_pool(data, allowed_ctl_ids):
+    """Backward-compatible alias for `filter_control_pool()`."""
+    return filter_control_pool(data, allowed_ctl_ids)
+
+
+def assemble_paired_dataset(anchor_data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
+    """Sample control pairs and assemble the concrete train/eval arrays."""
     valid_pairing_modes = {"multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"}
     if pairing_mode not in valid_pairing_modes:
         raise ValueError(f"未知 pairing_mode: {pairing_mode}")
 
-    anchor_X_trt = np.asarray(data["anchor_X_trt"], dtype=np.float32)
-    anchor_X_drug = np.asarray(data["anchor_X_drug"], dtype=np.float32)
-    anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
-    anchor_trt_distil_ids = np.asarray(data["anchor_trt_distil_ids"], dtype=str)
-    anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
-    anchor_batch_ids = np.asarray(data["anchor_batch_ids"], dtype=str)
-    anchor_det_plate_ids = np.asarray(data["anchor_det_plate_ids"], dtype=str)
-    anchor_drug_fp_idx = np.asarray(data["anchor_drug_fp_idx"], dtype=np.int32)
-    anchor_drug_has_target = np.asarray(data["anchor_drug_has_target"], dtype=np.float32)
-    anchor_drug_has_fp = np.asarray(data["anchor_drug_has_fp"], dtype=np.float32)
-    anchor_ctl_candidates = data["anchor_ctl_candidates"]
-    ctl_pool_ids = np.asarray(data["ctl_pool_ids"], dtype=str)
-    ctl_pool_expr = np.asarray(data["ctl_pool_expr"], dtype=np.float32)
+    anchor_X_trt = np.asarray(anchor_data["anchor_X_trt"], dtype=np.float32)
+    anchor_X_drug = np.asarray(anchor_data["anchor_X_drug"], dtype=np.float32)
+    anchor_drug_ids = np.asarray(anchor_data["anchor_drug_ids"], dtype=str)
+    anchor_trt_distil_ids = np.asarray(anchor_data["anchor_trt_distil_ids"], dtype=str)
+    anchor_cell_names = np.asarray(anchor_data["anchor_cell_names"], dtype=str)
+    anchor_batch_ids = np.asarray(anchor_data["anchor_batch_ids"], dtype=str)
+    anchor_det_plate_ids = np.asarray(anchor_data["anchor_det_plate_ids"], dtype=str)
+    anchor_drug_fp_idx = np.asarray(anchor_data["anchor_drug_fp_idx"], dtype=np.int32)
+    anchor_drug_has_target = np.asarray(anchor_data["anchor_drug_has_target"], dtype=np.float32)
+    anchor_drug_has_fp = np.asarray(anchor_data["anchor_drug_has_fp"], dtype=np.float32)
+    anchor_ctl_candidates = anchor_data["anchor_ctl_candidates"]
+    ctl_pool_ids = np.asarray(anchor_data["ctl_pool_ids"], dtype=str)
+    ctl_pool_expr = np.asarray(anchor_data["ctl_pool_expr"], dtype=np.float32)
     ctl_id_to_idx = {str(cid): i for i, cid in enumerate(ctl_pool_ids.tolist())}
-    drug_fp_table = data.get("drug_fp_table")
+    drug_fp_table = anchor_data.get("drug_fp_table")
     drug_fp_table = None if drug_fp_table is None else np.asarray(drug_fp_table, dtype=np.float32)
-    anchor_X_fingerprint = data.get("anchor_X_fingerprint")
+    anchor_X_fingerprint = anchor_data.get("anchor_X_fingerprint")
     anchor_X_fingerprint = None if anchor_X_fingerprint is None else np.asarray(anchor_X_fingerprint, dtype=np.float32)
 
     rng = np.random.default_rng(int(seed))
@@ -1012,6 +1044,16 @@ def materialize_paired_dataset(data, pairing_mode="multi_trt_multi_ctl", ctl_res
     return paired
 
 
+def materialize_paired_dataset(data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
+    """Backward-compatible alias for `assemble_paired_dataset()`."""
+    return assemble_paired_dataset(
+        data,
+        pairing_mode=pairing_mode,
+        ctl_residual_pool_size=ctl_residual_pool_size,
+        seed=seed,
+    )
+
+
 def build_scheme_a_split_data(
     data,
     split_mode,
@@ -1021,10 +1063,11 @@ def build_scheme_a_split_data(
     train_ctl_pair_k=3,
     test_pairing_mode="unique_trt_reuse_ctl",
 ):
+    """Build split-specific paired datasets while isolating train/test control pools."""
     anchor_drug_ids = np.asarray(data["anchor_drug_ids"], dtype=str)
     anchor_cell_names = np.asarray(data["anchor_cell_names"], dtype=str)
     anchor_X_drug = np.asarray(data["anchor_X_drug"], dtype=np.float32)
-    train_mask, test_mask = build_pair_split_masks(
+    train_mask, test_mask = create_pair_split_masks(
         split_mode,
         anchor_drug_ids,
         anchor_cell_names,
@@ -1032,17 +1075,17 @@ def build_scheme_a_split_data(
         seed=seed,
         drug_target_matrix=anchor_X_drug,
     )
-    train_anchor = subset_anchor_data(data, np.where(train_mask)[0])
-    test_anchor = subset_anchor_data(data, np.where(test_mask)[0])
-    train_allowed_ctl, test_allowed_ctl, train_candidates, test_candidates, ctl_stats = isolate_ctl_pools(
-        train_anchor["anchor_ctl_candidates"],
-        test_anchor["anchor_ctl_candidates"],
+    train_anchor_data = slice_anchor_data(data, np.where(train_mask)[0])
+    test_anchor_data = slice_anchor_data(data, np.where(test_mask)[0])
+    train_allowed_ctl, test_allowed_ctl, train_candidates, test_candidates, ctl_stats = split_control_pools(
+        train_anchor_data["anchor_ctl_candidates"],
+        test_anchor_data["anchor_ctl_candidates"],
         seed=seed,
     )
-    train_anchor["anchor_ctl_candidates"] = train_candidates
-    test_anchor["anchor_ctl_candidates"] = test_candidates
-    train_anchor["ctl_pool_ids"], train_anchor["ctl_pool_expr"] = filter_ctl_pool(data, train_allowed_ctl)
-    test_anchor["ctl_pool_ids"], test_anchor["ctl_pool_expr"] = filter_ctl_pool(data, test_allowed_ctl)
+    train_anchor_data["anchor_ctl_candidates"] = train_candidates
+    test_anchor_data["anchor_ctl_candidates"] = test_candidates
+    train_anchor_data["ctl_pool_ids"], train_anchor_data["ctl_pool_expr"] = filter_control_pool(data, train_allowed_ctl)
+    test_anchor_data["ctl_pool_ids"], test_anchor_data["ctl_pool_expr"] = filter_control_pool(data, test_allowed_ctl)
     print(
         "Isolated ctl pools | "
         f"shared_before={ctl_stats['shared_ctl_ids']} "
@@ -1051,14 +1094,14 @@ def build_scheme_a_split_data(
         f"train_empty={ctl_stats['train_empty_anchors']} "
         f"test_empty={ctl_stats['test_empty_anchors']}"
     )
-    train_data = materialize_paired_dataset(
-        train_anchor,
+    train_data = assemble_paired_dataset(
+        train_anchor_data,
         pairing_mode=str(train_pairing_mode),
         ctl_residual_pool_size=int(train_ctl_pair_k),
         seed=int(seed),
     )
-    test_data = materialize_paired_dataset(
-        test_anchor,
+    test_data = assemble_paired_dataset(
+        test_anchor_data,
         pairing_mode=str(test_pairing_mode),
         ctl_residual_pool_size=1,
         seed=int(seed) + 1,
@@ -1640,7 +1683,7 @@ def load_rfa_data(
         "pairing_mode": pairing_mode,
     }
 
-    paired = materialize_paired_dataset(
+    paired = assemble_paired_dataset(
         base_data,
         pairing_mode=pairing_mode,
         ctl_residual_pool_size=int(ctl_residual_pool_size),

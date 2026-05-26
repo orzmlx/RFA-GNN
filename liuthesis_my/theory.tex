@@ -259,7 +259,7 @@ Here $\mu(x)$ is the input dependent mean and $\sigma^{2}(x)$ is the input depen
 \noindent Under this view, the model predicts a mean prediction $\mu$ and a variance related term instead of predicting a single target value. In practice, models often predict $\log \sigma^{2}$ rather than $\sigma^{2}$, because this is easier to train, more stable, and still defines a positive variance after exponential operation~\cite{kendall2017uncertainties}.
 
 \subsubsection{Negative log likelihood}
-\noindent If the target is modeled with a Gaussian distribution, a natural training objective is the negative log likelihood (NLL). its general form is
+\noindent If the target is modeled with a Gaussian distribution, a natural training objective is the negative log likelihood (NLL). Its general form is
 \begin{equation}
 \label{eq:gaussian_nll}
 \mathcal{L}_{\mathrm{NLL}}=\frac{1}{2}\left[\log \sigma^{2}+\frac{(y-\mu)^{2}}{\sigma^{2}}\right].

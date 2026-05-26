@@ -1,11 +1,22 @@
 tensorflow
+torch
 numpy
 pandas
-matplotlib
+scipy
 scikit-learn
+matplotlib
+networkx
+h5py
+tables
+fsspec
+requests
+tqdm
 jupyter
 omnipath
 cmapPy
 rdkit
-networkx
-tables
+
+# Optional styling packages used by some plotting scripts.
+# The scripts fall back gracefully if these are missing.
+scienceplots
+colorbm

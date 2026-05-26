@@ -85,3 +85,12 @@ liuthesis_my/thesis.pdf
 
 # Upstream thesis template repo (use liuthesis_my instead)
 /liuthesis/
+
+# Local project folders to exclude from version control
+/DeepCOP/
+/GSNN/
+/meeting/
+/outputs/
+/references/
+/results/
+/XPert/

@@ -1,9 +1,9 @@
 % !TeX root = thesis.tex
 \chapter{Results}
-This chapter presents the main results for the proposed model and the baseline models under the warm, cold drug target, and cold cell splits. The results are organized into error, correlation, top gene precision, direction of change, ablation, uncertainty, data efficiency, and case studies.
+This chapter presents the main results for the proposed model and the baseline models under the warm, cold drug target, and cold cell splits.
 
 \section{Evaluation framework}
-\noindent All experiments in this chapter use the L1000 landmark setting with 978 genes. For every sample, the prediction target is the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. All learned models use the matched control profile and the drug input. UPert also uses cell context information.
+\noindent All experiments in this chapter use the L1000 landmark setting with 978 genes. For every sample, the prediction target is the response vector $y = x_{\mathrm{trt}} - x_{\mathrm{ctl}}$. All learned models use the matched control profile and the drug input. The proposed model also uses cell context information.
 
 \noindent The evaluation compares DeepCOP \cite{woo2020deepcop} as the dense baseline, GSNN \cite{evans2024gsnn} as the graph based baseline, and the proposed model, named Uncertainty Perturbation (UPert), in two versions. The no-CF version is the standard UPert model without the counterfactual constraint. The CF version keeps the same architecture but adds the counterfactual drug constraint described in the methodology chapter. Some tables and figures also include simple mean baselines, namely mean global, mean cell, and mean drug.
 % where the latter two use global fallback when the corresponding cell line or drug is unavailable in the training split.
@@ -40,7 +40,7 @@ Attention analysis & Case study on specific drug\\
 
 
 \section{Error metric results}
-\noindent Error metrics measure how close the predicted values are to the observed values. The main error metric here is mean squared error (MSE), where a lower score means a better prediction. Table~\ref{tab:mse_results} reports the benchmark comparison with both UPert variants and the simple mean baselines. no-CF UPert gives the lowest MSE among the learned models in warm and cold drug target, while CF UPert becomes the stronger learned UPert variant in cold cell. However, the mean\_drug baseline is still lowest overall in cold cell.
+\noindent Error metrics measure how close the predicted values are to the observed values. The main error metric here is mean squared error (MSE), where a lower score means a better prediction. Table~\ref{tab:mse_results} reports the benchmark comparison with both UPert variants and the simple mean baselines. No-CF UPert gives the lowest MSE among the learned models in warm and cold drug target, while CF UPert becomes the stronger learned UPert variant in cold cell. However, the mean\_drug baseline is still lowest overall in cold cell.
 
 \begin{table}[htbp]
 \centering
@@ -146,7 +146,7 @@ Cold cell & 0.5859 & 0.6084 & 0.6377 & \textbf{0.6407} \\
 \end{figure}
 
 \section{Ablation analysis}
-\noindent This ablation study is separate from the main benchmark comparison. It includes two focused analyses. First part compares two ways of providing cell information to the proposed model. Another part examines the contribution of the drug target input by testing what happens when that input is removed at test time.
+\noindent This ablation study is separate from the main benchmark comparison. It includes two focused analyses. One compares two ways of providing cell information to the proposed model. The other examines the contribution of the drug target input by testing what happens when that input is removed at test time.
 
 \subsection{Cell information ablation}
 \noindent The two cell information variants are illustrated earlier in Figure~\ref{fig:cellid_embedding} and Figure~\ref{fig:cell_context}. Table~\ref{tab:context_ablation} compares them quantitatively. This ablation uses the CF enabled UPert setting, so the comparison isolates the form of cell information while keeping the counterfactual loss active in both variants. In the table, ``CellId'' means that the model receives only the cell line identity as a learned embedding, while ``Cell context'' means that it receives a context vector derived from the matched control profile. Here $\Delta$ means cell context minus CellId, so a negative $\Delta$MSE and a positive $\Delta$PCC both indicate improvement. The cell context variant improves both metrics in all three splits. The changes are modest in warm and cold drug target, but much larger in cold cell. The benefit of cell context appears in every split and is strongest when the test cell line is unseen.
@@ -268,13 +268,13 @@ This part examines how model performance changes as the amount of training data 
 \begin{figure}[!htbp]
 \centering
 \includegraphics[width=0.88\linewidth]{figures/data_efficiency_warm_real.png}
-\caption[Warm Data Efficiency]{Warm split data efficiency results. The left panel shows test PCC and the right panel shows test MSE for DeepCOP, GSNN, and UPert across the displayed training budgets. In the updated DeepCOP budget runs, DeepCOP also improves clearly as more training data are used, while GSNN changes less across the same budgets.}
+\caption[Warm Data Efficiency]{Warm split data efficiency results. The left panel shows test PCC and the right panel shows test MSE for DeepCOP, GSNN, and UPert across the displayed training budgets.}
 \label{fig:data_efficiency_placeholder}
 \end{figure}
 
-\noindent Figure~\ref{fig:data_efficiency_placeholder} shows that UPert remains strongest on PCC across the displayed warm split budgets, and its advantage is already visible at smaller budgets. In the updated DeepCOP budget runs, DeepCOP also improves steadily as more data are added, with higher PCC and lower MSE across the shown budgets. GSNN changes less over the same range.
+\noindent Figure~\ref{fig:data_efficiency_placeholder} shows that UPert remains strongest on PCC across the displayed warm split budgets, and its advantage is already visible at smaller budgets. DeepCOP also improves steadily as more data are added, with higher PCC and lower MSE across the shown budgets. GSNN changes less over the same range.
 \section{Interpretation and case studies}
-\noindent Average metrics show overall performance, but they do not show how the model uses the graph in one specific example. The following cases are selected from UPert. Here attention means the weight that the model gives to one graph edge during message passing. A larger weight means that the model uses that edge more strongly in the final prediction. These weights are not treated as proof of a real biological mechanism. The analysis instead asks two practical questions: are the highly weighted edges easier to understand when the prediction is accurate, and does the model keep giving high weights to similar edges across different settings. Table~\ref{tab:case_study_terms} gives short explanations of the main biology terms used in this section. These short notes are only meant to help reading. They do not replace the full biological background of each gene or drug class.
+\noindent Average metrics show overall performance, but they do not show how the model uses the graph in one specific example. The following cases are selected from UPert. Here attention means the weight that the model gives to one graph edge during message passing. A larger weight means that the model uses that edge more strongly in the final prediction. These weights are not treated as proof of a real biological mechanism. The analysis asks whether highly weighted edges are easier to understand when the prediction is accurate, and whether the model keeps giving high weights to similar edges across different settings. Table~\ref{tab:case_study_terms} gives short explanations of the main biology terms used in this section. These short notes are only meant to help reading. They do not replace the full biological background of each gene or drug class.
 
 \begin{table}[htbp]
 \centering
