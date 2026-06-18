@@ -6,13 +6,11 @@ venv/
 
 # --- data/ --- ignore everything, un-ignore only what the code reads ---
 /data/*
-!/data/GSE92742_Broad_LINCS_gene_info.txt
 !/data/landmark_genes.json
 !/data/landmark.txt
 !/data/compound_targets.txt
 !/data/compoundinfo_beta.txt
 !/data/siginfo_beta.txt
-!/data/new_morgan_fingerprints.csv
 !/data/omnipath/
 /data/omnipath/*
 !/data/omnipath/omnipath_tf_regulons.csv

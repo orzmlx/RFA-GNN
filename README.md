@@ -19,15 +19,18 @@ pip install -r requirements.txt
 
 ## Data
 
-Small metadata files are in the repo. Expression data comes from LINCS L1000.
+### In the repo
 
-### Download
+- `data/landmark_genes.json`, `data/landmark.txt` — 978 landmark genes
+- `data/compound_targets.txt`, `data/compoundinfo_beta.txt` — drug metadata
+- `data/siginfo_beta.txt` — sample pairing info
+- `data/omnipath/omnipath_tf_regulons.csv`, `data/omnipath/omnipath_interactions.csv` — gene interaction network
+
+### Download and preprocess
 
 Get the Level 3 `.gctx` files from [clue.io/data](https://clue.io/data) (requires free account) and put them in `data/cmap/`:
 - `level3_beta_ctl_n188708x12328.gctx`
 - `level3_beta_trt_cp_n1805898x12328.gctx`
-
-### Convert
 
 ```bash
 python src/data/data_preprocess.py
