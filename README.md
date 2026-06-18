@@ -17,6 +17,25 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Data
+
+Small metadata files are in the repo. Expression data comes from LINCS L1000.
+
+### Download
+
+Get the Level 3 `.gctx` files from [clue.io/data](https://clue.io/data) (requires free account) and put them in `data/cmap/`:
+- `level3_beta_ctl_n188708x12328.gctx`
+- `level3_beta_trt_cp_n1805898x12328.gctx`
+
+### Convert
+
+```bash
+python src/data/data_preprocess.py
+```
+
+This creates `data/cmap/level3_beta_ctl_n188708x12328.h5` and
+`data/cmap/level3_beta_trt_cp_n1805898x12328.h5`.
+
 ## Repository Layout
 
 - `src/data/`   — data preprocessing, loading, and graph export helpers
@@ -43,13 +62,6 @@ pip install -r requirements.txt
 
 - `src/run/train_deepcop.py`
 - `src/run/train_gsnn_eval.py`
-
-### Example figure scripts
-
-- `src/plot/regenerate_fig43_true_pred.py`
-- `src/plot/plot_eval_figures.py`
-- `src/plot/plot_l1000_filter_flow.py`
-- `src/plot/plot_omnipath_schema.py`
 
 ## Running Scripts
 
@@ -82,7 +94,9 @@ python src/run/train_gat_run_no_cf_drug_loss_control_context.py \
   --batch_size 32 \
   --attention_layers 4 \
   --predict_uncertainty \
-  --pcc_lambda 5.0
+  --pcc_lambda 5.0 \
+  --save_meta_json outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.meta.json \
+  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz
 
 # --- Current ---
 python src/run/train_models.py --variant control_nocf \
@@ -92,7 +106,9 @@ python src/run/train_models.py --variant control_nocf \
   --batch_size 32 \
   --attention_layers 4 \
   --predict_uncertainty \
-  --pcc_lambda 5.0
+  --pcc_lambda 5.0 \
+  --save_meta_json outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.meta.json \
+  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz
 ```
 
 ### UPert with CF
@@ -110,7 +126,9 @@ python src/run/train_gat_run_cf_drug_loss_control_context.py \
   --cf_lambda 5.0 \
   --cf_margin 0.2 \
   --predict_uncertainty \
-  --pcc_lambda 5.0
+  --pcc_lambda 5.0 \
+  --save_meta_json outputs/with_cf_gat_0524/cagnn_control_context.meta.json \
+  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz
 
 # --- Current ---
 python src/run/train_models.py --variant control \
@@ -122,7 +140,9 @@ python src/run/train_models.py --variant control \
   --cf_lambda 5.0 \
   --cf_margin 0.2 \
   --predict_uncertainty \
-  --pcc_lambda 5.0
+  --pcc_lambda 5.0 \
+  --save_meta_json outputs/with_cf_gat_0524/cagnn_control_context.meta.json \
+  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz
 ```
 
 ### DeepCOP baseline
@@ -136,7 +156,8 @@ python src/run/train_deepcop.py \
   --lr 5e-4 \
   --split_modes warm,cold_target_pattern,cold_cell \
   --predict_uncertainty \
-  --pcc_lambda 5.0
+  --pcc_lambda 5.0 \
+  --save_json outputs/deepcop_uncertainty_0524/deepcop_uncertainty.json
 ```
 
 ### GSNN baseline
@@ -155,7 +176,9 @@ python src/run/train_gsnn_eval.py \
   --lr 1e-5 \
   --weight_decay 1e-4 \
   --norm none \
-  --node_mlp_hidden 64
+  --node_mlp_hidden 64 \
+  --save_json outputs/gsnn_0524/gsnn_results.json \
+  --save_pred_prefix outputs/gsnn_0524/gsnn_results.pred
 ```
 
 ## Notes
