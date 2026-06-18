@@ -4,6 +4,12 @@ from tensorflow.keras import layers
 
 
 class GraphAttentionLayerContextDense(layers.Layer):
+    """GAT layer for dense adjacency that uses a per-sample context vector to bias attention scores.
+
+    The context is projected into two vectors (self and neighbor) that are
+    added to the standard attention logits before softmax.  This lets the model
+    amplify or suppress specific edges depending on the biological context.
+    """
     def __init__(self, output_dim, num_heads=1, activation="relu", **kwargs):
         super().__init__(**kwargs)
         self.output_dim = int(output_dim)
@@ -33,7 +39,7 @@ class GraphAttentionLayerContextDense(layers.Layer):
                     name=f"attn_kernel_{i}",
                 )
             )
-            self.context_neigh_kernels.append(
+            self.context_self_kernels.append(
                 self.add_weight(
                     shape=(context_dim, self.output_dim),
                     initializer="glorot_uniform",
@@ -61,7 +67,7 @@ class GraphAttentionLayerContextDense(layers.Layer):
             attn_for_neighs = tf.matmul(h, self.attn_kernels[i][self.output_dim :])
             scores = attn_for_self + tf.transpose(attn_for_neighs, perm=[0, 2, 1])
 
-            # Let the sample-level context bias which incoming edges should matter more.
+            # Bias attention scores with the sample-level context before softmax.
             ctx_self = tf.matmul(context, self.context_self_kernels[i])
             ctx_neigh = tf.matmul(context, self.context_neigh_kernels[i])
             ctx_self_scores = tf.reduce_sum(h * ctx_self[:, None, :], axis=-1, keepdims=True)
@@ -91,6 +97,11 @@ class GraphAttentionLayerContextDense(layers.Layer):
 
 
 class GraphAttentionLayerContextSparse(layers.Layer):
+    """Sparse-message-passing version of GraphAttentionLayerContextDense.
+
+    Same context-biased attention, but operates on edge-index / edge-weight
+    pairs and uses segment-level softmax for efficiency on large graphs.
+    """
     def __init__(self, output_dim, num_heads=1, activation="relu", **kwargs):
         super().__init__(**kwargs)
         self.output_dim = int(output_dim)
@@ -165,7 +176,7 @@ class GraphAttentionLayerContextSparse(layers.Layer):
             e_src = tf.tensordot(h_src, a_right, axes=[[2], [0]])
             e = tf.squeeze(e_dst + e_src, axis=-1)
 
-            # Context terms shift attention scores before normalization, not after aggregation.
+            # Context terms bias attention scores before sparse softmax, not after aggregation.
             ctx_self = tf.matmul(context, self.context_self_kernels[i])
             ctx_neigh = tf.matmul(context, self.context_neigh_kernels[i])
             ctx_dst = tf.reduce_sum(h_dst * ctx_self[:, None, :], axis=-1)
@@ -198,6 +209,15 @@ class GraphAttentionLayerContextSparse(layers.Layer):
 
 
 class BaseLineGATContextAttention(keras.Model):
+    """UPert variant where context biases both node features AND attention scores.
+
+    Unlike control/hybrid variants that only inject context into node features
+    before the GAT stack, this variant feeds the context vector into every
+    attention layer.  The context modulates edge weights directly, so the model
+    can learn split-dependent routing patterns (e.g. different gene-gene edges
+    matter in warm vs. cold cell settings).  Node features receive the same
+    context injection as the hybrid variant.
+    """
     def __init__(
         self,
         num_genes,
@@ -337,6 +357,7 @@ class BaseLineGATContextAttention(keras.Model):
         raise ValueError("ctl_expr must be (B, N), (B, N, 1) or (B, N, 2)")
 
     def _build_cell_context(self, ctl_expr_base, cell_idx):
+        # --- control-derived context with optional cell-id gate ---
         ctl_context = self.context_norm(ctl_expr_base)
         ctl_context = self.context_encoder(ctl_context)
         context_delta = self.context_delta(ctl_context)
@@ -344,7 +365,7 @@ class BaseLineGATContextAttention(keras.Model):
 
         if self.use_cell_embedding:
             cell_base = self.cell_embedding(cell_idx)
-            # The gate decides how much of the control-derived delta should be injected on top of cell identity.
+            # Gate decides how much of the control-derived delta to add on top of cell identity.
             gate_input = tf.concat([cell_base, ctl_context], axis=-1)
             context_gate = self.context_gate(gate_input)
             fused_context = cell_base + context_scale * context_gate * context_delta
@@ -368,7 +389,7 @@ class BaseLineGATContextAttention(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
-        # Reuse one fused context vector for both node features and attention scores.
+        # Build one fused context vector that is shared by node features and attention layers.
         fused_context = self._build_cell_context(ctl_expr_base, cell_idx)
         x = x + fused_context[:, None, :]
 
@@ -381,6 +402,7 @@ class BaseLineGATContextAttention(keras.Model):
         x_in = x
         attentions = []
         for i in range(self.attention_layer_number):
+            # Pass fused_context into every attention layer so it can bias edges.
             res = x_in
             if self.use_sparse_adj:
                 if bool(output_attention):

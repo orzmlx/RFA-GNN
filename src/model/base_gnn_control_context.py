@@ -6,6 +6,12 @@ from base_gnn import GraphAttentionLayer, GraphAttentionLayerSparse
 
 
 class BaseLineGATControlContext(keras.Model):
+    """UPert variant where context is derived from the control expression profile.
+
+    The control profile is normalized, encoded through a small MLP, and gated
+    before being added to every gene node.  There is no separate cell-identity
+    branch, so the context signal comes purely from the measured baseline state.
+    """
     def __init__(
         self,
         num_genes,
@@ -171,10 +177,12 @@ class BaseLineGATControlContext(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
-        # Build context directly from the control profile, without a separate cell-id branch.
+        # --- context from control expression profile ---
+        # The control profile is normalized per sample and encoded into a fixed-dim
+        # vector.  A sigmoid gate suppresses noisy dimensions before the context is
+        # broadcast to all gene nodes with a learnable scale.
         ctl_context = self.context_norm(ctl_expr_base)
         ctl_context = self.context_encoder(ctl_context, training=training)
-        # The gate keeps the context additive but lets the model suppress noisy dimensions.
         ctl_context = ctl_context * self.context_gate(ctl_context)
         context_scale = tf.nn.softplus(self.context_scale_logit)
         x = x + context_scale * ctl_context[:, None, :]

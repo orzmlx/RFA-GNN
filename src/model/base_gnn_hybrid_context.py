@@ -6,6 +6,14 @@ from base_gnn import GraphAttentionLayer, GraphAttentionLayerSparse
 
 
 class BaseLineGATHybridContext(keras.Model):
+    """UPert variant with a hybrid context: cell identity + control expression profile.
+
+    A convex combination (learned mixing weight) fuses a cell-ID embedding with a
+    control-derived context vector.  The fused context is injected before the GAT
+    stack, giving every gene node access to both what cell it is in and what that
+    cell's baseline state looks like.  Branch-level dropout on the cell embedding
+    encourages the model to fall back on the control-derived signal.
+    """
     def __init__(
         self,
         num_genes,
@@ -163,15 +171,17 @@ class BaseLineGATHybridContext(keras.Model):
         raise ValueError("ctl_expr must be (B, N), (B, N, 1) or (B, N, 2)")
 
     def _build_cell_context(self, ctl_expr_base, cell_idx, training=False):
+        # --- control-derived branch ---
         ctl_context = self.context_norm(ctl_expr_base)
         ctl_context = self.context_encoder(ctl_context, training=training)
 
         if self.use_cell_embedding:
+            # --- cell-identity branch with branch-level dropout ---
             cell_base = self.cell_embedding(cell_idx)
             cell_base = self.cell_dropout(cell_base, training=training)
+            # Convex combination: the two branches sum to one, keeping scales comparable.
             cell_scale = tf.nn.sigmoid(self.cell_mix_logit)
             context_scale = 1.0 - cell_scale
-            # Keep the fusion convex so both branches stay on a comparable scale.
             fused_context = cell_scale * cell_base + context_scale * ctl_context
         else:
             fused_context = ctl_context
@@ -202,7 +212,7 @@ class BaseLineGATHybridContext(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
-        # Inject the fused context once before the attention stack.
+        # Inject the fused (cell-id + control) context once before the GAT stack.
         fused_context = self._build_cell_context(ctl_expr_base, cell_idx, training=training)
         x = x + fused_context[:, None, :]
 

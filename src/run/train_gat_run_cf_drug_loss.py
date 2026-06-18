@@ -310,8 +310,6 @@ def main():
     parser.add_argument("--use_landmark_genes", dest="use_landmark_genes", action="store_true", default=True)
     parser.add_argument("--no-use_landmark_genes", dest="use_landmark_genes", action="store_false")
     parser.add_argument("--use_drug_fp_embedding", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--use_drug_embedding", dest="use_drug_fp_embedding", action="store_true")
-    parser.add_argument("--no-use_drug_embedding", dest="use_drug_fp_embedding", action="store_false")
     parser.add_argument("--sparse_gat", action="store_true", default=False)
     parser.add_argument("--ctl_pair_k", type=int, default=3)
     parser.add_argument("--pairing_mode", choices=["multi_trt_multi_ctl", "unique_trt_reuse_ctl", "unique_trt_unique_ctl"], default="multi_trt_multi_ctl")
