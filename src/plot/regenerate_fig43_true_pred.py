@@ -5,7 +5,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from liuthesis_my.figures.result_generators.common import project_paths
+
+def _project_root():
+    """Find the project root (parent of src/)."""
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def load_panel(npz_path, model_name, split_name):
@@ -131,9 +134,9 @@ def draw_figure(panels, out_path, seed=42, max_points=120000, axis_quantile=0.99
     return out_path
 
 
-def generate():
-    paths = project_paths()
-    root = str(paths["root"])
+def generate(root=None):
+    if root is None:
+        root = _project_root()
     split_labels = {
         "warm": "Warm",
         "cold_target_pattern": "Cold drug target",
@@ -180,7 +183,7 @@ def generate():
         for split_mode in split_order:
             row.append(load_panel(split_files[split_mode], model_name, split_labels[split_mode]))
         panels.append(row)
-    out_path = os.path.join(root, "liuthesis_my", "figures", "gene_expr_true_pred_all_models_by_split.png")
+    out_path = os.path.join(root, "gene_expr_true_pred_all_models_by_split.png")
     draw_figure(panels, out_path=out_path, seed=42, max_points=120000)
     return out_path
 

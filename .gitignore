@@ -98,5 +98,5 @@ liuthesis_my/thesis.pdf
 /references/
 /results/
 /XPert/
-/src/plot/
+/src/plot/*
 !/src/plot/regenerate_fig43_true_pred.py
