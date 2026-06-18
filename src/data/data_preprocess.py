@@ -189,7 +189,7 @@ def save_df_to_h5_csv(df, output_name,save_path="data/cmap"):
 
 
 
-def extrac_data_from_gctx(landmark_file, info_path, cell_lines=[], durations=[], doses=[], to_csv=False):
+def extract_data_from_gctx(landmark_file, info_path, cell_lines=[], durations=[], doses=[], to_csv=False):
     if landmark_file:
         landmarks = get_landmark_ids(landmark_file)
     else:
@@ -232,58 +232,6 @@ def extrac_data_from_gctx(landmark_file, info_path, cell_lines=[], durations=[],
 
     return ctl_df, trt_df
 
-# def extract_cell_lines(col_list, cell_lines= []):
-#     if cell_lines is not None and len(cell_lines) > 0:
-#         print(f"正在过滤细胞系: {cell_lines}")
-#         filtered_cols = [col for col in col_list if any(cl in col for cl in cell_lines)]
-#         if len(filtered_cols) == 0:
-#             print("警告: 未在样本ID中找到指定细胞系，未做细胞系过滤。")
-#         else:
-#             print(f"细胞系过滤后剩余样本数: {len(filtered_cols)}")
-#     return filtered_cols
-
-# def extract_durations(col_list, durations= []):
-#     if durations is not None and len(durations) > 0:
-#         print(f"正在过滤处理时间: {durations}")
-#         filtered_cols = [col for col in col_list if any(dur in col for dur in durations)]
-#         if len(filtered_cols) == 0:
-#             print("警告: 未在样本ID中找到指定处理时间，未做处理时间过滤。")
-#         else:
-#             print(f"处理时间过滤后剩余样本数: {len(filtered_cols)}")
-           
-#     return filtered_cols
-
-
-
-# def extract_doses(col_list, infopath, doses= []):
-#     if doses is not None and len(doses) > 0:
-#         print(f"正在根据注释文件过滤剂量: {doses}")
-#         dose_info = pd.read_csv(infopath, sep=None, engine='python')
-#         # 支持多剂量和单位
-#         dose_mask = False
-#         for dose in doses:
-#             num = re.search(r'\d+', dose).group()
-#             # 提取第一个数字
-#             unit = re.search(r'[A-Za-z]+',dose).group() 
-#             # 支持剂量单位为 UM（不区分大小写）
-#             mask = (dose_info['pert_dose'] >= float(num) - 0.1) & (dose_info['pert_dose'] <= float(num) + 0.1) & (dose_info['pert_dose_unit'].str.upper() == unit.upper())
-#             dose_mask = dose_mask | mask if isinstance(dose_mask, pd.Series) else mask
-#         filtered_sample_ids_raw = dose_info.loc[dose_mask, 'distil_ids'].tolist()
-#         # 拆分以|分隔的id
-#         filtered_sample_ids = []
-#         for item in filtered_sample_ids_raw:
-#             if isinstance(item, str) and '|' in item:
-#                 filtered_sample_ids.extend(item.split('|'))
-#             else:
-#                 filtered_sample_ids.append(item)
-#         filtered_sample_ids = [x for x in filtered_sample_ids if isinstance(x, str) and x.strip()]
-#         filtered_set = set(filtered_sample_ids)
-#         filtered_cols = [col for col in col_list if col in filtered_set]
-#         if len(filtered_cols) == 0:
-#             print("警告: 注释文件未找到指定剂量样本，未做剂量过滤。")
-#         else:
-#             print(f"剂量过滤后剩余样本数: {len(filtered_cols)}")
-#     return filtered_cols
 
 
 def filter_by_condition(info_df, cell_lines=[], durations=[], doses=[]):
@@ -434,7 +382,7 @@ if __name__ == "__main__":
     durations = [24]
     doses = ["10uM"]
     infopath = "data/siginfo_beta.txt"
-    ctl_df, trt_df = extrac_data_from_gctx(None, infopath, cell_lines, durations, doses, to_csv=True)
+    ctl_df, trt_df = extract_data_from_gctx(None, infopath, cell_lines, durations, doses, to_csv=True)
    # align_trt_ctl_csv(ctl_csv_path, trt_csv_path, infopath, cell_lines, durations, doses)
     # # 读取siginfo元数据
     # info_df = pd.read_csv(infopath, sep='\t', engine='python')

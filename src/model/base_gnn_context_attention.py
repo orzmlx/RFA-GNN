@@ -61,6 +61,7 @@ class GraphAttentionLayerContextDense(layers.Layer):
             attn_for_neighs = tf.matmul(h, self.attn_kernels[i][self.output_dim :])
             scores = attn_for_self + tf.transpose(attn_for_neighs, perm=[0, 2, 1])
 
+            # Let the sample-level context bias which incoming edges should matter more.
             ctx_self = tf.matmul(context, self.context_self_kernels[i])
             ctx_neigh = tf.matmul(context, self.context_neigh_kernels[i])
             ctx_self_scores = tf.reduce_sum(h * ctx_self[:, None, :], axis=-1, keepdims=True)
@@ -145,6 +146,7 @@ class GraphAttentionLayerContextSparse(layers.Layer):
         n_nodes = tf.shape(features)[1]
         batch_size = tf.shape(features)[0]
         num_edges = tf.shape(src)[0]
+        # Build per-batch segment ids so sparse softmax can be normalized per destination node.
         dst_rep = tf.tile(dst[None, :], [batch_size, 1])
         b_rep = tf.repeat(tf.range(batch_size)[:, None], repeats=num_edges, axis=1)
         seg_ids = tf.reshape(b_rep * n_nodes + dst_rep, [-1])
@@ -163,6 +165,7 @@ class GraphAttentionLayerContextSparse(layers.Layer):
             e_src = tf.tensordot(h_src, a_right, axes=[[2], [0]])
             e = tf.squeeze(e_dst + e_src, axis=-1)
 
+            # Context terms shift attention scores before normalization, not after aggregation.
             ctx_self = tf.matmul(context, self.context_self_kernels[i])
             ctx_neigh = tf.matmul(context, self.context_neigh_kernels[i])
             ctx_dst = tf.reduce_sum(h_dst * ctx_self[:, None, :], axis=-1)
@@ -341,6 +344,7 @@ class BaseLineGATContextAttention(keras.Model):
 
         if self.use_cell_embedding:
             cell_base = self.cell_embedding(cell_idx)
+            # The gate decides how much of the control-derived delta should be injected on top of cell identity.
             gate_input = tf.concat([cell_base, ctl_context], axis=-1)
             context_gate = self.context_gate(gate_input)
             fused_context = cell_base + context_scale * context_gate * context_delta
@@ -364,6 +368,7 @@ class BaseLineGATContextAttention(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
+        # Reuse one fused context vector for both node features and attention scores.
         fused_context = self._build_cell_context(ctl_expr_base, cell_idx)
         x = x + fused_context[:, None, :]
 

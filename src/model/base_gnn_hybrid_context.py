@@ -47,13 +47,13 @@ class BaseLineGATHybridContext(keras.Model):
 
         if self.use_cell_embedding:
             self.cell_embedding = layers.Embedding(num_cells, hidden_dim)
-            # Use a single mixing weight so cell-id and control context form a normalized fusion.
+            # Start biased toward control context and let training decide how much cell id to keep.
             self.cell_mix_logit = self.add_weight(
                 shape=(),
                 initializer=keras.initializers.Constant(-3.0),
                 name="cell_mix_logit",
             )
-            # Drop the whole cell-id branch per sample instead of individual embedding dimensions.
+            # Dropping the whole branch works better here than dropping random embedding coordinates.
             self.cell_dropout = layers.Dropout(self.cell_dropout_rate, noise_shape=(None, 1))
         else:
             self.cell_embedding = None
@@ -171,6 +171,7 @@ class BaseLineGATHybridContext(keras.Model):
             cell_base = self.cell_dropout(cell_base, training=training)
             cell_scale = tf.nn.sigmoid(self.cell_mix_logit)
             context_scale = 1.0 - cell_scale
+            # Keep the fusion convex so both branches stay on a comparable scale.
             fused_context = cell_scale * cell_base + context_scale * ctl_context
         else:
             fused_context = ctl_context
@@ -201,6 +202,7 @@ class BaseLineGATHybridContext(keras.Model):
         target_scale = tf.nn.softplus(self.target_scale_logit)
         x = x_expr_emb + target_scale * x_target_emb
 
+        # Inject the fused context once before the attention stack.
         fused_context = self._build_cell_context(ctl_expr_base, cell_idx, training=training)
         x = x + fused_context[:, None, :]
 

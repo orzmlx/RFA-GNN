@@ -37,13 +37,11 @@ class DeepCOP(tf.keras.Model):
         self.original_architecture = bool(original_architecture)
         self.predict_uncertainty = bool(predict_uncertainty)
         
-        # 处理 GO Matrix
+        # GO features are optional; when present they are treated as fixed side information.
         self.go_matrix = None
         go_dim = 0
         if go_matrix is not None:
-            # 转换为常量 Tensor，无需训练
             self.go_matrix = tf.constant(go_matrix, dtype=tf.float32)
-            # 矩阵形状: (num_genes, num_go_terms)
             go_dim = go_matrix.shape[1]
             print(f"DeepCOP: 集成 GO 特征矩阵，维度 {go_dim}")
             
@@ -60,7 +58,7 @@ class DeepCOP(tf.keras.Model):
             act1 = "relu"
             act2 = "relu"
         
-        # Layer 1: Dense -> BN -> ReLU -> Dropout
+        # Keep the MLP close to the published DeepCOP recipe, except for the regression head below.
         self.dense1 = layers.Dense(self.hidden_dim, name='dense_1')
         self.bn1 = layers.BatchNormalization(name='bn_1')
         self.act1 = layers.Activation(act1, name='act_1')
@@ -88,9 +86,7 @@ class DeepCOP(tf.keras.Model):
         """
         ctl_expr, drug_fp = inputs
         
-        # 1. Feature Fusion
-        # 计算 Pathway Activity: (B, N_Genes) @ (N_Genes, N_GO) -> (B, N_GO)
-        # 这一步将基因层面的表达值聚合为通路层面的活性值
+        # Control expression stays as the main signal; GO activity and drug features are appended if available.
         features_list = [ctl_expr]
         
         if self.go_matrix is not None:

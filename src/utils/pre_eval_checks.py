@@ -75,7 +75,7 @@ def predict_group_mean_baseline(test_keys, global_mean, group_mean):
     return np.asarray(preds, dtype=np.float32)
 
 
-def predict_drug_cell_fallback_baseline(test_drugs, test_cells, global_mean, drug_mean, cell_mean):
+def predict_fallback_baseline(test_drugs, test_cells, global_mean, drug_mean, cell_mean):
     test_drugs = np.asarray(test_drugs, dtype=str)
     test_cells = np.asarray(test_cells, dtype=str)
     preds = []
@@ -89,7 +89,7 @@ def predict_drug_cell_fallback_baseline(test_drugs, test_cells, global_mean, dru
     return np.asarray(preds, dtype=np.float32)
 
 
-def aggregate_random_matched_average(train_data):
+def compute_matched_average(train_data):
     trt_ids = np.asarray(train_data["trt_distil_ids"], dtype=str)
     cells = np.asarray(train_data["cell_names"], dtype=str)
     y = np.asarray(train_data["y_delta"], dtype=np.float32)
@@ -113,7 +113,7 @@ def aggregate_random_matched_average(train_data):
     return np.asarray(agg_cells, dtype=str), np.asarray(agg_y, dtype=np.float32)
 
 
-def summarise_split(split_mode, train_data, test_data):
+def summarize_split(split_mode, train_data, test_data):
     train_drugs = np.asarray(train_data["drug_ids"], dtype=str)
     test_drugs = np.asarray(test_data["drug_ids"], dtype=str)
     train_cells = np.asarray(train_data["cell_names"], dtype=str)
@@ -184,7 +184,7 @@ def main():
     if "tensorflow" not in sys.modules:
         sys.modules["tensorflow"] = types.ModuleType("tensorflow")
 
-    from data_loader import load_rfa_data, build_scheme_a_split_data
+    from data_loader import load_rfa_data, prepare_split_data
 
     out_dir = os.path.abspath(str(args.out_dir))
     os.makedirs(out_dir, exist_ok=True)
@@ -224,7 +224,7 @@ def main():
     baseline_rows = []
     split_payloads = []
     for split_mode in split_modes:
-        train_data, test_data, _, _ = build_scheme_a_split_data(
+        train_data, test_data, _, _ = prepare_split_data(
             data=data,
             split_mode=split_mode,
             test_frac=float(args.test_frac),
@@ -233,7 +233,7 @@ def main():
             train_ctl_pair_k=int(args.ctl_pair_k),
             test_pairing_mode="unique_trt_reuse_ctl",
         )
-        stats_rows.append(summarise_split(split_mode, train_data, test_data))
+        stats_rows.append(summarize_split(split_mode, train_data, test_data))
         global_mean, cell_mean = fit_cell_mean_baseline(train_data["y_delta"], train_data["cell_names"])
         y_true = np.asarray(test_data["y_delta"], dtype=np.float32)
         global_pred = np.repeat(global_mean[None, :], len(y_true), axis=0)
@@ -274,7 +274,7 @@ def main():
                 "test_cells_seen": int(len(np.unique(np.asarray(test_data["cell_names"], dtype=str)))),
             }
         )
-        fallback_pred = predict_drug_cell_fallback_baseline(
+        fallback_pred = predict_fallback_baseline(
             test_data["drug_ids"],
             test_data["cell_names"],
             global_mean,

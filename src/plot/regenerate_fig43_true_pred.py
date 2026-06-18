@@ -5,6 +5,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from liuthesis_my.figures.result_generators.common import project_paths
+
 
 def load_panel(npz_path, model_name, split_name):
     data = np.load(npz_path, allow_pickle=True)
@@ -126,10 +128,12 @@ def draw_figure(panels, out_path, seed=42, max_points=120000, axis_quantile=0.99
         os.makedirs(out_dir, exist_ok=True)
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
+    return out_path
 
 
-def main():
-    root = "/Users/liuxi/Desktop/RFA_GNN"
+def generate():
+    paths = project_paths()
+    root = str(paths["root"])
     split_labels = {
         "warm": "Warm",
         "cold_target_pattern": "Cold drug target",
@@ -139,17 +143,17 @@ def main():
         (
             "DeepCOP",
             {
-                "warm": os.path.join(root, "results", "deepcop.pred.warm.npz"),
-                "cold_target_pattern": os.path.join(root, "results", "cold_target_pattern", "deepcop_cold_target_pattern.pred.cold_target_pattern.npz"),
-                "cold_cell": os.path.join(root, "results", "deepcop.pred.cold_cell.npz"),
+                "warm": os.path.join(root, "outputs", "deepcop_uncertainty_0524", "deepcop_uncertainty.pred.warm.npz"),
+                "cold_target_pattern": os.path.join(root, "outputs", "deepcop_uncertainty_0524", "deepcop_uncertainty.pred.cold_target_pattern.npz"),
+                "cold_cell": os.path.join(root, "outputs", "deepcop_uncertainty_0524", "deepcop_uncertainty.pred.cold_cell.npz"),
             },
         ),
         (
             "GSNN",
             {
-                "warm": os.path.join(root, "gsnn_res", "gsnn_978_allcells_results.pred.warm.npz"),
-                "cold_target_pattern": os.path.join(root, "results", "cold_target_pattern", "gsnn_cold_target_pattern.pred.cold_target_pattern.npz"),
-                "cold_cell": os.path.join(root, "gsnn_res", "gsnn_978_allcells_results.pred.cold_cell.npz"),
+                "warm": os.path.join(root, "outputs", "gsnn_0524", "gsnn_results.pred.warm.npz"),
+                "cold_target_pattern": os.path.join(root, "outputs", "gsnn_0524", "gsnn_results.pred.cold_target_pattern.npz"),
+                "cold_cell": os.path.join(root, "outputs", "gsnn_0524", "gsnn_results.pred.cold_cell.npz"),
             },
         ),
         (
@@ -163,9 +167,9 @@ def main():
         (
             "UPert with CF",
             {
-                "warm": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.warm.npz"),
-                "cold_target_pattern": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.cold_target_pattern.npz"),
-                "cold_cell": os.path.join(root, "outputs", "with_cf_gat_0523", "cagnn_control_context.eval.cold_cell.npz"),
+                "warm": os.path.join(root, "outputs", "with_cf_gat_0524", "cagnn_control_context.eval.warm.npz"),
+                "cold_target_pattern": os.path.join(root, "outputs", "with_cf_gat_0524", "cagnn_control_context.eval.cold_target_pattern.npz"),
+                "cold_cell": os.path.join(root, "outputs", "with_cf_gat_0524", "cagnn_control_context.eval.cold_cell.npz"),
             },
         ),
     ]
@@ -178,7 +182,11 @@ def main():
         panels.append(row)
     out_path = os.path.join(root, "liuthesis_my", "figures", "gene_expr_true_pred_all_models_by_split.png")
     draw_figure(panels, out_path=out_path, seed=42, max_points=120000)
-    print(out_path)
+    return out_path
+
+
+def main():
+    print(generate())
 
 
 if __name__ == "__main__":

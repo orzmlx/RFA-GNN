@@ -40,7 +40,7 @@ def parse_budget_spec(budget):
         return ("fraction", frac)
 
     s = str(budget).strip().lower()
-    if s in {"", "full", "all", "100%", "1.0", "1"}:
+    if s in {"", "full", "all", "100%"}:
         return ("full", 1.0)
     if s in {"zero", "zero_shot", "zero-shot", "0", "0%"}:
         return ("zero_shot", 0.0)
@@ -147,7 +147,7 @@ def apply_pair_budget_to_dataset(
     return budget_train, meta
 
 
-def build_xpert_style_budget_split_data(
+def build_budget_split_data(
     data,
     split_mode,
     test_frac,
@@ -163,7 +163,7 @@ def build_xpert_style_budget_split_data(
     # Accept the original split function explicitly so wrapper-based patching does not recurse.
     if base_split_fn is None:
         # Lazy import keeps this module usable for budget-mask unit tests without heavy deps.
-        from data_loader import build_scheme_a_split_data as base_split_fn
+        from data_loader import prepare_split_data as base_split_fn
 
     train_data, test_data, train_anchor_mask, test_anchor_mask = base_split_fn(
         data=data,

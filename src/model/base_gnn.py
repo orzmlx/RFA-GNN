@@ -18,30 +18,9 @@ class GraphAttentionLayer(layers.Layer):
         self.attn_kernels = []
         
         for _ in range(self.num_heads):
-            # ## kernel 是什么？（特征变换矩阵 W）
-            # - 形状： (F, Out）   
-            # - F ：输入特征维度（每个节点输入向量的长度）
-            # - Out ：这个 head 输出的特征维度（每个节点输出向量的长度）
-            # - 作用：把节点的原始特征做一次线性变换：
-            # [h = XW] ,这是内部进行一个变换，用来把节点的原始特征映射到一个新的空间表示。
-            # 在代码里就是：
-            # - h = tf.matmul(features, self.kernels[i]) （ base_gnn.py:L35-L37 ）
-            # 直觉： kernel 决定“节点特征怎么被编码成更适合做注意力/聚合的表示”。
+            # One projection per head keeps the attention computation simple.
             kernel = self.add_weight(shape=(feature_dim, self.output_dim), initializer='glorot_uniform', name=f'kernel_{_}')
-            #    形状： (2*Out, 1)
-            #    之所以是 2*Out ，是因为 GAT 的标准注意力打分用的是节点 i 和节点 j 的拼接向量：
-            #   [e_{ij} = \text{LeakyReLU}\left( a^T [h_i ,||, h_j] \right)
-            #   ] [h_i || h_j] 拼接后长度就是 2*Out ，乘上 a （一个长度 2*Out 的向量）得到标量分数。
-            # - 代码里没有显式拼接，而是把 a 拆成两半（“trick”）：
-            
-            #   - a = [a_left ; a_right]
-            #   - 于是：
-            #     [a^T [h_i||h_j] = a_{left}^T h_i + a_{right}^T h_j]
-            #     对应代码：
-            #   - attn_for_self = h @ a_left （ base_gnn.py:L42 ）
-            #   - attn_for_neighs = h @ a_right （ base_gnn.py:L43 ）
-            #   - 然后广播相加得到 (B,N,N) 的 scores （ base_gnn.py:L45-L47 ）
-            # 直觉： attn_kernel 决定“节点 i 该更关注哪些邻居 j”
+            # Split attention vector into source/target parts instead of concatenating pairs explicitly.
             attn_kernel = self.add_weight(shape=(2 * self.output_dim, 1), initializer='glorot_uniform', name=f'attn_kernel_{_}')
             self.kernels.append(kernel)
             self.attn_kernels.append(attn_kernel)
@@ -54,31 +33,25 @@ class GraphAttentionLayer(layers.Layer):
         outputs = []
         attns = []
         for i in range(self.num_heads):
-            # 1. Linear Transform: H = XW
+            # Project node features into the per-head latent space.
             h = tf.matmul(features, self.kernels[i]) # (B, N, Out)
             
-            # 2. Attention Mechanism
-            # e_ij = LeakyReLU(a^T [Wh_i || Wh_j])
-            # Trick: a^T [h_i || h_j] = a_1^T h_i + a_2^T h_j
-            
+            # Compute pairwise attention scores with the usual source/target trick.
             attn_for_self = tf.matmul(h, self.attn_kernels[i][:self.output_dim]) # (B, N, 1)
             attn_for_neighs = tf.matmul(h, self.attn_kernels[i][self.output_dim:]) # (B, N, 1)
             
-            # Broadcasting: (B, N, 1) + (B, 1, N) -> (B, N, N)
             scores = attn_for_self + tf.transpose(attn_for_neighs, perm=[0, 2, 1])
             scores = tf.nn.leaky_relu(scores)
             
-            # 3. Masking based on Graph Structure
-            # adj (N, N) -> (1, N, N)
+            # Keep only edges that exist in the prior graph.
             edge_weight = tf.cast(tf.expand_dims(adj, axis=0), tf.float32) # (1, N, N)
-            mask = tf.not_equal(edge_weight, 0.0) # 创建一个布尔掩码，用于标记哪些边是真实存在的（即邻接矩阵中对应位置的值不为 0）
+            mask = tf.not_equal(edge_weight, 0.0)
             # -1e9 ensures softmax -> 0
             scores = tf.where(mask, scores, -1e9)
             
-            # 4. Softmax normalization
             attn_weights = tf.nn.softmax(scores, axis=-1)
             
-            # 5. Aggregation
+            # Weight messages by both attention and edge strength.
             node_repr = tf.matmul(attn_weights * edge_weight, h)
             outputs.append(node_repr)
             if bool(return_attention):
@@ -124,6 +97,7 @@ class GraphAttentionLayerSparse(layers.Layer):
         n_nodes = tf.shape(features)[1]
         batch_size = tf.shape(features)[0]
         num_edges = tf.shape(src)[0]
+        # Segment ids group messages by destination node inside each batch item.
         dst_rep = tf.tile(dst[None, :], [batch_size, 1])
         b_rep = tf.repeat(tf.range(batch_size)[:, None], repeats=num_edges, axis=1)
         seg_ids = tf.reshape(b_rep * n_nodes + dst_rep, [-1])
@@ -141,6 +115,7 @@ class GraphAttentionLayerSparse(layers.Layer):
             e_src = tf.tensordot(h_src, a_right, axes=[[2], [0]])
             e = tf.nn.leaky_relu(tf.squeeze(e_dst + e_src, axis=-1))
 
+            # Softmax is done with segment ops so we never materialize a dense NxN matrix.
             e_flat = tf.reshape(e, [-1])
             max_per_seg = tf.math.unsorted_segment_max(e_flat, seg_ids, num_segs)
             exp = tf.exp(e_flat - tf.gather(max_per_seg, seg_ids))
@@ -182,9 +157,8 @@ class BaseLineGAT(keras.Model):
         self.use_sparse_adj = bool(use_sparse_adj)
         self.use_cell_embedding = bool(use_cell_embedding)
         self.predict_uncertainty = bool(predict_uncertainty)
-        # Embedding for [Ctl, Target, Cell]
+        # Control expression and drug targets are projected separately so target signal is not washed out.
         self.expr_embedding = layers.Dense(hidden_dim, activation="relu")
-        # 为了防止target 信号被淹没，不在和 expression 信号合并，而是单独投影到 hidden_dim 维度,并对其进行缩放
         self.target_embedding = layers.Dense(hidden_dim, activation="relu")
         self.target_scale_logit = self.add_weight(shape=(), initializer="zeros", name="target_scale_logit")
 
@@ -214,11 +188,9 @@ class BaseLineGAT(keras.Model):
         if self.use_cell_embedding:
             self.cell_embedding = layers.Embedding(num_cells, hidden_dim)
         
-        # Drug Conditioning
         if self.use_drug_fp_embedding:
             if fingerprint_dim <= 0:
                 raise Exception("fingerprint_dim must be greater than 0 when use_drug_embedding is True")
-            # 同时生成缩放参数和偏移参数，两个参数的维度都与特征维度相同，所以总维度是 hidden_dim * 2
             print(f"启用药物指纹FiLM调制 (Dim: {fingerprint_dim} -> {hidden_dim})")
             self.drug_film = keras.Sequential([
                 layers.Dense(hidden_dim, activation="relu"),
@@ -250,7 +222,7 @@ class BaseLineGAT(keras.Model):
                 self.gat_layers.append(GraphAttentionLayer(head_dim, num_heads=num_heads, activation='relu'))
             self.attn_norms.append(layers.LayerNormalization())
             self.attn_dropouts.append(layers.Dropout(dropout))
-            # ffn先投射到较高维度，然后降维，即采用“扩展-收缩”的结构
+            # A small transformer-style FFN after attention helps mix dimensions within each node.
             self.ffn_layers.append(keras.Sequential([
                 layers.Dense(hidden_dim * 2, activation='relu'),
                 layers.Dropout(dropout),
@@ -297,12 +269,10 @@ class BaseLineGAT(keras.Model):
         if len(drug_targets.shape) != 2:
             raise ValueError("drug_targets must be (B, N)")
         x_target = tf.expand_dims(drug_targets, axis=-1)
-        # 1. Base Features softplus(x)=log(1+e x)
         x_expr_emb = self.expr_embedding(x_expr)
         x_target_emb = self.target_embedding(x_target)
         target_scale = tf.nn.softplus(self.target_scale_logit)
         
-        # 2. Add Cell Context
         x = x_expr_emb + target_scale * x_target_emb
         if self.use_cell_embedding:
             cell_emb = self.cell_embedding(cell_idx)
@@ -310,7 +280,7 @@ class BaseLineGAT(keras.Model):
             cell_emb = tf.tile(cell_emb, [1, tf.shape(x_expr)[1], 1])
             x = x + cell_emb
         
-        # 3. 药物调制（只在输入层注入一次），通过 tanh 将 gamma 限制在 (-1, 1) 之间
+        # Apply FiLM once at the input block so the drug signal conditions all later message passing.
         if self.use_drug_fp_embedding:
             film = self.drug_film(drug_fp)
             gamma, beta = tf.split(film, num_or_size_splits=2, axis=-1)

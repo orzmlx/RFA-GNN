@@ -5,7 +5,7 @@ import shutil
 import sys
 import tempfile
 from base_gnn import BaseLineGAT
-from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, build_scheme_a_split_data
+from data_loader import load_rfa_data, build_combined_gnn, subset_anchor_data, prepare_split_data
 import numpy as np
 import tensorflow as tf
 import json
@@ -451,7 +451,7 @@ def main():
         keras.backend.clear_session()
         tf.random.set_seed(42)
         print(f"\n===== Running split: {split_mode} =====")
-        train_data, test_data, train_anchor_mask, test_anchor_mask = build_scheme_a_split_data(
+        train_data, test_data, train_anchor_mask, test_anchor_mask = prepare_split_data(
             data=data,
             split_mode=split_mode,
             test_frac=float(args.test_frac),

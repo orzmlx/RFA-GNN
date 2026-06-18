@@ -1,202 +1,10 @@
-from typing import Any
 import heapq
 import pandas as pd
 import numpy as np
-import omnipath as op
-import tensorflow as tf
-from cmapPy.pandasGEXpress.parse import parse
-import requests
-import gzip
-import io
 import os
 import json
-import networkx as nx
-import matplotlib.pyplot as plt
 import h5py
 from train_common import build_disjoint_target_split_masks
-
-def load_uniprot_gene_mapping(mapping_path):
-    """
-    从本地 UniProt idmapping 文件加载 UniProt -> Gene Symbol 映射。
-    文件格式: UniProtKB-AC <tab> ID_type <tab> ID
-    仅保留 Gene_Name / Gene_Name (primary)。
-    """
-    if not mapping_path or not os.path.exists(mapping_path):
-        return {}
-    opener = gzip.open if mapping_path.endswith('.gz') else open
-    mapping = {}
-    with opener(mapping_path, 'rt') as f:
-        for line in f:
-            parts = line.rstrip('\n').split('\t')
-            if len(parts) != 3:
-                continue
-            uniprot_id, id_type, value = parts
-            if id_type in ('Gene_Name', 'Gene_Name (primary)', 'Gene_Name_primary'):
-                if uniprot_id and value and uniprot_id not in mapping:
-                    mapping[uniprot_id] = value
-    return mapping
-
-def protein_to_gene_symbol_batch(protein_ids, mapping_path=None):
-    """
-    批量查询UniProt蛋白ID对应的基因symbol。
-    Args:
-        protein_ids: list of UniProt IDs
-        mapping_path: 本地 UniProt 映射文件（可选）
-    Returns:
-        dict: {protein_id: gene_symbol}
-    """
-    # 优先使用本地映射，避免在线查询
-    local_mapping = load_uniprot_gene_mapping(mapping_path)
-    if local_mapping:
-        return {pid: local_mapping.get(pid, '') for pid in protein_ids if local_mapping.get(pid)}
-
-
-
-def update_omnipath_with_genesymbols(input_path, output_path, mapping_path=None):
-    """
-    给Omnipath文件添加source_genesymbol和target_genesymbol两列。
-    Args:
-        input_path: 原始csv文件（source/target为蛋白ID）
-        output_path: 新csv文件（新增基因symbol列）
-        mapping_path: 本地 UniProt 映射文件（可选）
-    """
-    df = pd.read_csv(input_path)
-    protein_ids = set(df['source']).union(set(df['target']))
-    mapping = protein_to_gene_symbol_batch(list(protein_ids), mapping_path=mapping_path)
-    df['source_genesymbol'] = df['source'].map(mapping)
-    df['target_genesymbol'] = df['target'].map(mapping)
-    df.to_csv(output_path, index=False)
-    print(f"已输出: {output_path}")
-
-
-
-def map_targets_to_proteins(input_path, output_path):
-    """
-    输入：annotate_compound_targets 生成的 txt 文件（pert_id	targets），targets为逗号分隔的基因symbol。
-    输出：增加一列 protein_ids（逗号分隔的UniProt ID），并保存到新文件。
-    """
-
-    df = pd.read_csv(input_path, sep='\t')
-    # 收集所有唯一gene symbol
-    all_genes = set()
-    for targets in df['target']:
-        if pd.notna(targets) and targets:
-            all_genes.update([g for g in str(targets).split(',') if g])
-    all_genes = list(all_genes)
-    # 批量查询mygene.info
-    gene2uniprot = {}
-    batch_size = 100
-    for i in range(0, len(all_genes), batch_size):
-        batch = all_genes[i:i+batch_size]
-        url = f'https://mygene.info/v3/query'
-        params = {
-            'q': 'symbol:(' + ' OR '.join(batch) + ')',
-            'species': 'human',
-            'fields': 'symbol,uniprot.Swiss-Prot',
-            'size': batch_size
-        }
-        try:
-            r = requests.get(url, params=params, timeout=20)
-            if r.ok:
-                hits = r.json().get('hits', [])
-                for hit in hits:
-                    symbol = hit.get('symbol')
-                    # 如果 symbol 还是 None，则用 batch gene 名称（理论上不会出现）
-                    if not symbol:
-                        for gene in batch:
-                            if hit.get('query') == gene or hit.get('_id') == gene:
-                                symbol = gene
-                                break
-                    up = hit.get('uniprot', {}).get('Swiss-Prot')
-                    if symbol and up:
-                        if isinstance(up, list):
-                            gene2uniprot[symbol] = up[0]
-                        elif isinstance(up, str):
-                            gene2uniprot[symbol] = up
-        except Exception as e:
-            print(f"批量查询失败: {e}")
-    # 映射回原表
-    protein_id_list = []
-    for idx, row in df.iterrows():
-        targets = str(row['target']).split(',') if pd.notna(row['target']) and row['target'] else []
-        proteins = [gene2uniprot.get(g, '') for g in targets if g]
-        proteins = [p for p in proteins if p]
-        protein_id_list.append(','.join(proteins))
-    df['protein_ids'] = protein_id_list
-    df.to_csv(output_path, sep='\t', index=False)
-    print(f"已输出: {output_path}")
-
-# --- STRING Data Handler ---
-class STRINGLoader:
-    """
-    负责下载、处理和加载 STRING 数据库的数据。
-    """
-    
-    @staticmethod
-    def download_file(url):
-        print(f"尝试下载: {url} ...")
-        try:
-            response = requests.get(url, stream=True)
-            if response.status_code == 200:
-                print("下载成功！")
-                return response.content
-            else:
-                print(f"下载失败 (Status {response.status_code})")
-                return None
-        except Exception as e:
-            print(f"发生错误: {e}")
-            return None
-
-
-
-
-
-def download_omnipath_network(output_path='data/omnipath/'):
-    """
-    下载 OmniPath 网络数据并保存到本地。
-    """
-    ppi_path = output_path + "omnipath_interactions.csv"
-    tf_path = output_path + "omnipath_tf_regulons.csv"
-    mirna_path = output_path + "omnipath_mirna_targets.csv"
-    if  os.path.exists(ppi_path) or  os.path.exists(tf_path) or  os.path.exists(mirna_path):
-        print("存在部分Omnipath数据，跳过下载。")
-        return
-    try:
-     
-        interactions = op.interactions.OmniPath.get(
-            genesymbols=True,
-           # resources=['SignaLink3', 'PathwayCommons'],  # 可选：指定数据源,所以数据量很小
-            fields=['source_genesymbol', 'target_genesymbol', 'interaction_type', 'confidence']  # 保留关键字段
-        )
-
-        # 保存为CSV
-        interactions.to_csv(ppi_path, index=False)
-        print("✅ 蛋白互作数据已保存：omnipath_interactions.csv")
-
-        # ========== 2. 下载调控网络（TF调控+miRNA调控） ==========
-        # TF转录因子调控
-        tf_reg = op.interactions.TFtarget.get(
-            genesymbols=True,
-            fields=['source_genesymbol', 'target_genesymbol', 'effect']
-        )
-        tf_reg.to_csv(tf_path, index=False)
-        print("✅ TF调控网络已保存：omnipath_tf_regulons.csv")
-
-        # miRNA调控
-        mirna_reg = op.interactions.miRNA.get(genesymbols=True)
-        mirna_reg.to_csv(mirna_path, index=False)
-        print("✅ miRNA调控网络已保存：omnipath_mirna_targets.csv")
-
-        # ========== 3. 下载通路注释（Annotations） ==========
-        # annot = op.annotations.get(
-        #     categories=['pathway'],  # 只筛选通路相关注释
-        #     fields=['genesymbol', 'category', 'resource', 'description']
-        # )
-        # annot.to_csv(output_path + "omnipath_annotations.csv", index=False)
-        # print("✅ 通路注释数据已保存：omnipath_annotations.csv")
-
-    except Exception as e:
-        raise Exception (f"OmniPath API 调用失败: {e}")
 
 
 def build_combined_gnn(
@@ -205,9 +13,9 @@ def build_combined_gnn(
     target_genes=None,
     #full_gene_path="data/GSE92742_Broad_LINCS_gene_info.txt",
     #string_path = "data/string_interactions_mapped.csv",
-    confid_threshold= 0.9,
-    directed=True,
-    omnipath_consensus_only=False,
+    # confid_threshold= 0.9,
+    # directed=True,
+    # omnipath_consensus_only=False,
     omnipath_is_directed_only=False,
     symbol_to_entrez=None,
     return_edge_weight=False,
@@ -294,8 +102,8 @@ def build_combined_gnn(
         directed_edges = []
         undirected_edges = []
         for idx in np.where(valid.values)[0]:
-            s_symbol = str(src_sym.iloc[idx])
-            t_symbol = str(tgt_sym.iloc[idx])
+            # s_symbol = str(src_sym.iloc[idx])
+            # t_symbol = str(tgt_sym.iloc[idx])
             s = str(src_entrez.iloc[idx])
             t = str(tgt_entrez.iloc[idx])
             
@@ -392,26 +200,7 @@ def build_combined_gnn(
             directed_map[key] = w if abs(w) > abs(prev) else prev
     edges_directed = [(s, t, w) for (s, t), w in directed_map.items()]
 
-    # undirected_map = {}
-    # for s, t, w in edges_undirected:
-    #     s = str(s)
-    #     t = str(t)
-    #     u, v = (s, t) if s <= t else (t, s)
-    #     key = (u, v)
-    #     prev = undirected_map.get(key)
-    #     undirected_map[key] = w if prev is None else max(prev, w)
-    # edges_undirected = [(u, v, w) for (u, v), w in undirected_map.items()]
-
-   # edges_all = edges_directed + edges_undirected
-
-    #if target_genes is not None and len(target_genes) > 0:
     node_list = target_entrez
-    # else:
-    #     all_nodes = set()
-    #     for u, v, w in edges_all:
-    #         all_nodes.add(str(u))
-    #         all_nodes.add(str(v))
-    #     node_list = sorted(list(all_nodes))
         
     gene2idx = {g: i for i, g in enumerate(node_list)}
     N = len(node_list)
@@ -479,214 +268,6 @@ def build_combined_gnn(
 
     print(f"Combined Graph 构建完成: {N} 节点, {count} 边 (含权重)")
     return adj_matrix, node_list, gene2idx, np.array(edge_index)
-
-
-# def combine_full_grapg(
-#     tf_path="data/omnipath/omnipath_tf_regulons.csv",
-#     ppi_path="data/omnipath/omnipath_interactions.csv",
-#     target_genes=None,
-#     directed=True,
-#     symbol_to_entrez=None,
-#     default_weight=1.0,
-# ):
-#     print(">>> 正在构建 Full Graph (TF + PPI, no sign filtering) ...")
-
-#     def _norm_symbol(s):
-#         return str(s).strip().upper()
-
-#     def _norm_entrez(x):
-#         s = str(x).strip()
-#         if s.endswith(".0"):
-#             s = s[:-2]
-#         return s
-
-#     if not symbol_to_entrez or symbol_to_entrez is None:
-#         raise RuntimeError("未能构建 symbol_to_entrez 映射：请检查 full_gene_path / landmark_path 文件。")
-#     if target_genes is None or len(target_genes) == 0:
-#         raise Exception("target_genes 不能为空")
-
-#     target_entrez = [_norm_entrez(x) for x in target_genes]
-#     target_entrez = [x for x in target_entrez if x]
-#     target_entrez = list(dict.fromkeys(target_entrez))
-#     target_genes_set = set(target_entrez)
-
-#     def _pick_sign_fallback(s, t):
-#         import hashlib
-
-#         h = hashlib.md5(f"{s}|{t}".encode("utf-8")).digest()
-#         return 1.0 if (int.from_bytes(h[:2], "big") % 2 == 0) else -1.0
-
-#     def _extract_edges(df):
-#         if df is None or df.shape[0] == 0:
-#             return []
-#         if "source_genesymbol" not in df.columns or "target_genesymbol" not in df.columns:
-#             return []
-
-#         src_sym = df["source_genesymbol"].astype(str).map(_norm_symbol)
-#         tgt_sym = df["target_genesymbol"].astype(str).map(_norm_symbol)
-#         src_entrez = src_sym.map(symbol_to_entrez)
-#         tgt_entrez = tgt_sym.map(symbol_to_entrez)
-#         valid = src_entrez.notna() & tgt_entrez.notna()
-#         if not bool(valid.any()):
-#             return []
-
-#         is_directed_mask = df["is_directed"].fillna(False).astype(bool) if "is_directed" in df.columns else None
-#         stim = df["is_stimulation"].fillna(False).astype(bool) if "is_stimulation" in df.columns else None
-#         inhib = df["is_inhibition"].fillna(False).astype(bool) if "is_inhibition" in df.columns else None
-#         cs = df["consensus_stimulation"].fillna(False).astype(bool) if "consensus_stimulation" in df.columns else None
-#         ci = df["consensus_inhibition"].fillna(False).astype(bool) if "consensus_inhibition" in df.columns else None
-
-#         edges = []
-#         for idx in np.where(valid.values)[0]:
-#             s = str(src_entrez.iloc[idx])
-#             t = str(tgt_entrez.iloc[idx])
-#             if s not in target_genes_set or t not in target_genes_set:
-#                 continue
-
-#             sign = None
-#             if cs is not None and ci is not None:
-#                 cs_i = bool(cs.iloc[idx])
-#                 ci_i = bool(ci.iloc[idx])
-#                 if cs_i and not ci_i:
-#                     sign = 1.0
-#                 elif ci_i and not cs_i:
-#                     sign = -1.0
-#                 elif cs_i and ci_i:
-#                     sign = _pick_sign_fallback(s, t)
-#             if sign is None and stim is not None and inhib is not None:
-#                 stim_i = bool(stim.iloc[idx])
-#                 inhib_i = bool(inhib.iloc[idx])
-#                 if stim_i and not inhib_i:
-#                     sign = 1.0
-#                 elif inhib_i and not stim_i:
-#                     sign = -1.0
-#                 elif stim_i and inhib_i:
-#                     sign = _pick_sign_fallback(s, t)
-#             if sign is None:
-#                 sign = 1.0
-#             w = float(default_weight) * float(sign)
-
-#             is_dir = bool(is_directed_mask.iloc[idx]) if is_directed_mask is not None else True
-#             if is_dir:
-#                 edges.append((s, t, w))
-#             else:
-#                 if bool(directed):
-#                     edges.append((s, t, abs(w)))
-#                     edges.append((t, s, abs(w)))
-#                 else:
-#                     u, v = (s, t) if s <= t else (t, s)
-#                     edges.append((u, v, abs(w)))
-#         return edges
-
-#     edges = []
-#     if tf_path is not None and os.path.exists(tf_path):
-#         df_tf = pd.read_csv(tf_path)
-#         edges.extend(_extract_edges(df_tf))
-#     if ppi_path is not None and os.path.exists(ppi_path):
-#         df_ppi = pd.read_csv(ppi_path)
-#         edges.extend(_extract_edges(df_ppi))
-
-#     edge_map = {}
-#     for s, t, w in edges:
-#         key = (str(s), str(t))
-#         prev = edge_map.get(key)
-#         if prev is None:
-#             edge_map[key] = w
-#         else:
-#             edge_map[key] = w if abs(w) > abs(prev) else prev
-#     edges = [(s, t, w) for (s, t), w in edge_map.items()]
-
-#     node_list = target_entrez
-#     gene2idx = {g: i for i, g in enumerate(node_list)}
-#     N = len(node_list)
-#     adj_matrix = np.zeros((N, N), dtype=np.float32)
-#     edge_index = [[], []]
-#     count = 0
-#     for u, v, w in edges:
-#         if u in gene2idx and v in gene2idx:
-#             i, j = gene2idx[u], gene2idx[v]
-#             if abs(w) > abs(adj_matrix[j, i]):
-#                 adj_matrix[j, i] = w
-#             edge_index[0].append(i)
-#             edge_index[1].append(j)
-#             count += 1
-
-#     np.fill_diagonal(adj_matrix, 1.0)
-#     print(f"Full Graph 构建完成: {N} 节点, {count} 边 (含权重)")
-#     return adj_matrix, node_list, gene2idx, np.array(edge_index)
-
-
-def load_go_fingerprints(file_path, gene_list):
-    """
-    加载 GO Fingerprints 并与目标基因列表对齐。
-    
-    Args:
-        file_path (str): go_fingerprints.csv 的路径
-        gene_list (list): 目标基因 ID 列表 (e.g., ['123', '456', ...]) 
-                          注意：输入的 gene_list 是 Entrez ID (数字字符串)
-        
-    Returns:
-        np.ndarray: 对齐后的 GO 特征矩阵 (Num_Genes, Num_GO_Terms)
-    """
-    print(f"正在加载 GO Fingerprints: {file_path} ...")
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"找不到文件: {file_path}")
-        
-    # 1. 加载 Entrez ID -> Gene Symbol 映射
-    # GO 文件使用 Symbol (字母)，但输入 gene_list 是 Entrez ID (数字)
-    # 我们需要 landmark_genes.json 来建立映射
-    landmark_json_path = "DeepCOP/Data/landmark_genes.json"
-    if not os.path.exists(landmark_json_path):
-         # 尝试备用路径
-         landmark_json_path = "data/landmark_genes.json"
-         
-    if not os.path.exists(landmark_json_path):
-        print("警告: 找不到 landmark_genes.json，无法进行 ID 映射。假设输入直接是 Symbol。")
-        id_to_symbol = {g: g for g in gene_list}
-    else:
-        print(f"正在从 {landmark_json_path} 加载 ID 映射...")
-        with open(landmark_json_path, 'r') as f:
-            genes_meta = json.load(f)
-        # 建立映射: str(entrez_id) -> gene_symbol
-        id_to_symbol = {str(g['entrez_id']): g['gene_symbol'] for g in genes_meta if 'entrez_id' in g and 'gene_symbol' in g}
-        
-    # 2. 读取 CSV (第一列是 Gene Symbol)
-    try:
-        df = pd.read_csv(file_path, index_col=0) 
-    except Exception as e:
-        print(f"读取 CSV 失败: {e}")
-        return None
-
-    # 获取所有 GO 特征列
-    go_terms = df.columns
-    print(f"原始 GO 数据: {df.shape} (Genes x GO_Terms)")
-    
-    # 3. 构建对齐后的矩阵
-    num_genes = len(gene_list)
-    num_go = len(go_terms)
-    
-    aligned_matrix = np.zeros((num_genes, num_go), dtype=np.float32)
-    
-    found_count = 0
-    missing_genes = []
-    
-    # 遍历目标基因列表 (Entrez IDs)
-    for i, gene_id in enumerate(gene_list):
-        # 将 Entrez ID 转换为 Symbol
-        gene_symbol = id_to_symbol.get(str(gene_id))
-        
-        if gene_symbol and gene_symbol in df.index:
-            aligned_matrix[i, :] = df.loc[gene_symbol].values
-            found_count += 1
-        else:
-            missing_genes.append(f"{gene_id}({gene_symbol})")
-            # 缺失基因保持全0
-            
-    print(f"GO 特征对齐完成: 匹配 {found_count}/{num_genes} 个基因。")
-    if len(missing_genes) > 0:
-        print(f"部分缺失示例: {missing_genes[:5]} ...")
-        
-    return aligned_matrix
 
 
 def create_pair_split_masks(split_mode, drug_ids, cell_names, test_frac, seed=42, drug_target_matrix=None):
@@ -807,7 +388,7 @@ def split_control_pools(train_candidates, test_candidates, seed=42):
     shared = set(train_used & test_used)
     rng = np.random.default_rng(int(seed))
 
-    def collect_unmet_anchor_controls(side_candidates, allowed_controls):
+    def _collect_missing_controls(side_candidates, allowed_controls):
         unmet = set()
         anchor_to_shared = {}
         shared_to_anchors = {}
@@ -821,8 +402,8 @@ def split_control_pools(train_candidates, test_candidates, seed=42):
                     shared_to_anchors.setdefault(control_id, []).append(anchor_idx)
         return unmet, anchor_to_shared, shared_to_anchors
 
-    train_unmet, train_anchor_to_shared, train_shared_to_anchors = collect_unmet_anchor_controls(train_candidates, train_allowed)
-    test_unmet, test_anchor_to_shared, test_shared_to_anchors = collect_unmet_anchor_controls(test_candidates, test_allowed)
+    train_unmet, train_anchor_to_shared, train_shared_to_anchors = _collect_missing_controls(train_candidates, train_allowed)
+    test_unmet, test_anchor_to_shared, test_shared_to_anchors = _collect_missing_controls(test_candidates, test_allowed)
 
     train_cover = {ctl_id: len(anchors) for ctl_id, anchors in train_shared_to_anchors.items()}
     test_cover = {ctl_id: len(anchors) for ctl_id, anchors in test_shared_to_anchors.items()}
@@ -832,7 +413,7 @@ def split_control_pools(train_candidates, test_candidates, seed=42):
         score = max(train_cover.get(ctl_id, 0), test_cover.get(ctl_id, 0))
         heapq.heappush(heap, (-score, ctl_id))
 
-    def mark_anchor_satisfied(side, anchor_idx):
+    def _mark_anchor_done(side, anchor_idx):
         if side == "train":
             if anchor_idx not in train_unmet:
                 return
@@ -876,11 +457,11 @@ def split_control_pools(train_candidates, test_candidates, seed=42):
         if side == "train":
             train_allowed.add(ctl_id)
             for anchor_idx in train_shared_to_anchors.get(ctl_id, []):
-                mark_anchor_satisfied("train", anchor_idx)
+                _mark_anchor_done("train", anchor_idx)
         else:
             test_allowed.add(ctl_id)
             for anchor_idx in test_shared_to_anchors.get(ctl_id, []):
-                mark_anchor_satisfied("test", anchor_idx)
+                _mark_anchor_done("test", anchor_idx)
 
     remaining = [ctl_id for ctl_id in shared if ctl_id not in assigned_side]
     rng.shuffle(remaining)
@@ -904,10 +485,6 @@ def split_control_pools(train_candidates, test_candidates, seed=42):
     return train_allowed, test_allowed, train_filtered, test_filtered, stats
 
 
-def isolate_ctl_pools(train_candidates, test_candidates, seed=42):
-    """Backward-compatible alias for `split_control_pools()`."""
-    return split_control_pools(train_candidates, test_candidates, seed=seed)
-
 
 def filter_control_pool(dataset, allowed_control_ids):
     """Filter the cached control pool down to a selected subset of control ids."""
@@ -920,11 +497,6 @@ def filter_control_pool(dataset, allowed_control_ids):
         return np.asarray([], dtype=object), np.zeros((0, num_genes), dtype=np.float32)
     keep_idx = np.asarray(keep_idx, dtype=np.int32)
     return ctl_pool_ids[keep_idx], ctl_pool_expr[keep_idx]
-
-
-def filter_ctl_pool(data, allowed_ctl_ids):
-    """Backward-compatible alias for `filter_control_pool()`."""
-    return filter_control_pool(data, allowed_ctl_ids)
 
 
 def assemble_paired_dataset(anchor_data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
@@ -1044,17 +616,7 @@ def assemble_paired_dataset(anchor_data, pairing_mode="multi_trt_multi_ctl", ctl
     return paired
 
 
-def materialize_paired_dataset(data, pairing_mode="multi_trt_multi_ctl", ctl_residual_pool_size=3, seed=42):
-    """Backward-compatible alias for `assemble_paired_dataset()`."""
-    return assemble_paired_dataset(
-        data,
-        pairing_mode=pairing_mode,
-        ctl_residual_pool_size=ctl_residual_pool_size,
-        seed=seed,
-    )
-
-
-def build_scheme_a_split_data(
+def prepare_split_data(
     data,
     split_mode,
     test_frac,
@@ -1109,56 +671,7 @@ def build_scheme_a_split_data(
     return train_data, test_data, train_mask, test_mask
 
 
-def visualize_tf_graph(node_list, edge_index,
-                       max_nodes=200, seed=42, out_path="tf_graph.png",
-                       show_labels=True, sample_strategy="degree",
-                       label_map_override=None, must_include=None):
-    
-    # Build directed graph
-    G = nx.DiGraph()
-    G.add_nodes_from(range(len(node_list)))
-
-    if edge_index.size > 0:
-        edges = list(zip(edge_index[0].tolist(), edge_index[1].tolist()))
-        G.add_edges_from(edges)
-
-    # Subsample for visualization clarity
-    if G.number_of_nodes() > max_nodes:
-        must_include = set(must_include or [])
-        must_include = [n for n in G.nodes() if n in must_include]
-        remaining_slots = max(max_nodes - len(must_include), 0)
-
-        if sample_strategy == "degree":
-            degrees = sorted(G.degree, key=lambda x: x[1], reverse=True)
-            selected = [n for n, _ in degrees if n not in must_include][:remaining_slots]
-        else:
-            rng = np.random.default_rng(seed)
-            candidates = [n for n in G.nodes() if n not in must_include]
-            selected = rng.choice(candidates, size=min(remaining_slots, len(candidates)), replace=False).tolist()
-
-        selected = list(must_include) + selected
-        G = G.subgraph(selected).copy()
-
-    # Layout and draw
-    plt.figure(figsize=(10, 10))
-    pos = nx.spring_layout(G, seed=seed, k=0.25)
-    nx.draw_networkx_nodes(G, pos, node_size=20, node_color="#2E86AB", alpha=0.8)
-    nx.draw_networkx_edges(G, pos, arrows=True, width=0.5, alpha=0.4, edge_color="#555555")
-    if show_labels:
-        if label_map_override:
-            label_map = {idx: label_map_override.get(node_list[idx], node_list[idx]) for idx in G.nodes()}
-        else:
-            label_map = {idx: node_list[idx] for idx in G.nodes()}
-        nx.draw_networkx_labels(G, pos, labels=label_map, font_size=6, font_color="#111111")
-    plt.title("TF Regulatory Network (subsampled)")
-    plt.axis("off")
-    plt.tight_layout()
-
-    plt.savefig(out_path, dpi=200)
-    print(f"Saved graph visualization to: {out_path}")
-
-
-def _generate_full_symbol_to_entrez(full_gene_path):
+def _build_symbol_entrez_map(full_gene_path):
     """从全基因文件生成 Symbol->Entrez 映射"""
     symbol_to_entrez = {}
     try:
@@ -1344,7 +857,7 @@ def load_rfa_data(
     # 1. 加载基因列表
     target_genes = [] 
 
-    full_symbol_to_entrez = _generate_full_symbol_to_entrez(full_gene_path)
+    full_symbol_to_entrez = _build_symbol_entrez_map(full_gene_path)
 
 
     # Check landmark availability (handle None)
@@ -1710,123 +1223,3 @@ def load_rfa_data(
         }
     )
     return data
-
-
-# def load_custom_graph_from_csv(
-#     csv_path,
-#     landmark_path="data/landmark_genes.json",
-#     landmark_genes=None
-# ):
-#     """
-#     从 CSV 加载自定义图结构 (Source, Target, Weight/Sign)。
-#     用于加载 RFA Pipeline 生成的 Directed Graph。
-#     """
-#     print(f">>> Loading Custom Graph from {csv_path} ...")
-    
-#     if not os.path.exists(csv_path):
-#         raise FileNotFoundError(f"Graph file not found: {csv_path}")
-
-#     # 1. Load Genes
-#     if landmark_genes:
-#         node_list = [str(g) for g in landmark_genes]
-#     else:
-#          with open(landmark_path, 'r') as f:
-#             genes_meta = json.load(f)
-#          node_list = [str(g['entrez_id']) for g in genes_meta]
-         
-#     gene2idx = {g: i for i, g in enumerate(node_list)}
-#     N = len(node_list)
-#     adj_matrix = np.zeros((N, N), dtype=np.float32)
-    
-#     # 2. Load CSV
-#     # Format: source,target,weight
-#     try:
-#         df = pd.read_csv(csv_path)
-#     except Exception as e:
-#         print(f"Error reading CSV: {e}")
-#         return None, None, None, None
-
-#     count = 0
-#     edge_index = [[], []]
-    
-#     for _, row in df.iterrows():
-#         u = str(row['source'])
-#         v = str(row['target'])
-#         # w = float(row['weight']) 
-        
-#         if u in gene2idx and v in gene2idx:
-#             i, j = gene2idx[u], gene2idx[v]
-#             # GAT Masking requires > 0. We ignore sign here and just mark existence.
-#             adj_matrix[i, j] = 1.0 
-            
-#             edge_index[0].append(i)
-#             edge_index[1].append(j)
-#             count += 1
-            
-#     # Self loops
-#     np.fill_diagonal(adj_matrix, 1.0)
-    
-#     print(f"Custom Graph Loaded: {N} Nodes, {count} Edges.")
-#     return adj_matrix, node_list, gene2idx, np.array(edge_index)
-
-
-if __name__ == "__main__":
-    print("--- 演示模式 ---")
-    compoundinfo_path = "data/compoundinfo_beta.txt"
-    output_path = "data/compound_targets.txt"
-    #map_targets_to_proteins(compoundinfo_path, output_path)
-    # 演示：下载 STRING
-    # STRINGLoader.load_directed_actions()
-    #download_omnipath_network()
-    #annotate_compound_targets(compoundinfo_path, output_path)
-   #real_interactions = load_omnipath_network()
-    # 可视化时使用完整 TF 网络（不做 landmark 过滤）
-    adj_matrix, node_list, gene2idx, edge_index = build_combined_gnn( directed=False)
-
-    # adj_matrix, node_list, gene2idx, edge_index = build_gnn_from_tf_network(
-    #     use_landmark_filter=False,
-    #     landmark_path="data/landmark.txt",
-    #     mapping_path="data/landmark_genes.json",
-    #     include_non_landmark_nodes=True,
-    # )
-    # # 如果 landmark 是 Entrez ID，则用 JSON 映射为基因符号展示
-    # label_map_override = None
-    # try:
-    #     with open("data/landmark_genes.json", "r") as f:
-    #         genes_meta = json.load(f)
-    #     label_map_override = {str(g["entrez_id"]): g["gene_symbol"] for g in genes_meta if "entrez_id" in g and "gene_symbol" in g}
-    # except Exception as e:
-    #     print(f"标签映射加载失败: {e}")
-
-    # # 让可视化优先包含所有 landmark 节点（避免低度节点被采样掉）
-    # landmark_set = None
-    # try:
-    #     with open("data/landmark.txt", "r") as f:
-    #         landmark_set = set(line.strip() for line in f if line.strip())
-    # except Exception as e:
-    #     print(f"landmark 加载失败: {e}")
-
-    # must_include = None
-    # if landmark_set:
-    #     must_include = {gene2idx[g] for g in landmark_set if g in gene2idx}
-
-    # visualize_tf_graph(
-    #     node_list,
-    #     edge_index,
-    #     max_nodes=12000,
-    #     show_labels=True,
-    #     sample_strategy="degree",
-    #     label_map_override=label_map_override,
-    #     must_include=must_include,
-    # )
-    # mapping_path = "data/HUMAN_9606_idmapping.dat.gz"
-    # update_omnipath_with_genesymbols(
-    #     "data/omnipath/omnipath_tf_regulons.csv",
-    #     "data/omnipath/omnipath_tf_regulons_with_genes.csv",
-    #     mapping_path=mapping_path
-    # )
-    # update_omnipath_with_genesymbols(
-    #     "data/omnipath/omnipath_interactions.csv",
-    #     "data/omnipath/omnipath_interactions_with_genes.csv",
-    #     mapping_path=mapping_path
-    # )

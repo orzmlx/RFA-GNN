@@ -4,7 +4,7 @@ import os
 import sys
 from contextlib import contextmanager
 
-from data_budget_split import build_xpert_style_budget_split_data, summarize_budget_split
+from data_budget_split import build_budget_split_data, summarize_budget_split
 
 
 DEFAULT_BUDGETS = "one_shot,20%,30%,50%,80%"
@@ -83,7 +83,7 @@ def make_budgeted_split_fn(budget, budget_seed):
         train_ctl_pair_k=3,
         test_pairing_mode="unique_trt_reuse_ctl",
     ):
-        train_data, test_data, train_anchor_mask, test_anchor_mask, meta = build_xpert_style_budget_split_data(
+        train_data, test_data, train_anchor_mask, test_anchor_mask, meta = build_budget_split_data(
             data=data,
             split_mode=split_mode,
             test_frac=test_frac,
@@ -104,12 +104,12 @@ def make_budgeted_split_fn(budget, budget_seed):
 @contextmanager
 def patched_split(module_name, budget, budget_seed):
     module = importlib.import_module(module_name)
-    original = getattr(module, "build_scheme_a_split_data")
-    setattr(module, "build_scheme_a_split_data", make_budgeted_split_fn(budget=budget, budget_seed=budget_seed))
+    original = getattr(module, "prepare_split_data")
+    setattr(module, "prepare_split_data", make_budgeted_split_fn(budget=budget, budget_seed=budget_seed))
     try:
         yield module
     finally:
-        setattr(module, "build_scheme_a_split_data", original)
+        setattr(module, "prepare_split_data", original)
 
 
 def run_budgeted_main(module_name, argv=None):

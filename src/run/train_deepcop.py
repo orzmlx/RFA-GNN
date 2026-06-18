@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from sklearn.preprocessing import OneHotEncoder
-from data_loader import load_rfa_data, subset_anchor_data, build_scheme_a_split_data
+from data_loader import load_rfa_data, subset_anchor_data, prepare_split_data
 from deepcop import DeepCOP
 SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if SRC_DIR not in sys.path:
@@ -232,7 +232,7 @@ def main():
         tf.keras.backend.clear_session()
         tf.random.set_seed(int(args.seed))
         print(f"\n===== Running split: {split_mode} =====")
-        train_data, test_data, train_mask, test_mask = build_scheme_a_split_data(
+        train_data, test_data, train_mask, test_mask = prepare_split_data(
             data=data,
             split_mode=split_mode,
             test_frac=0.2,
