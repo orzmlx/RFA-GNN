@@ -100,3 +100,11 @@ liuthesis_my/thesis.pdf
 /XPert/
 /src/plot/*
 !/src/plot/regenerate_fig43_true_pred.py
+!/src/plot/common.py
+!/src/plot/__init__.py
+!/src/plot/generate_benchmark_mean_baseline_figures.py
+!/src/plot/generate_data_efficiency_figure.py
+!/src/plot/generate_gene_distribution_figure.py
+!/src/plot/generate_gene_level_uncertainty_figure.py
+!/src/plot/generate_top_gene_precision_figure.py
+!/src/plot/generate_uncertainty_figures.py
