@@ -96,7 +96,8 @@ python src/run/train_gat_run_no_cf_drug_loss_control_context.py \
   --predict_uncertainty \
   --pcc_lambda 5.0 \
   --save_meta_json outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.meta.json \
-  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz
+  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz \
+  --save_gat_weights outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.weights.h5
 
 # --- Current ---
 python src/run/train_models.py --variant control_nocf \
@@ -108,7 +109,8 @@ python src/run/train_models.py --variant control_nocf \
   --predict_uncertainty \
   --pcc_lambda 5.0 \
   --save_meta_json outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.meta.json \
-  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz
+  --save_eval_npz outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.eval.npz \
+  --save_gat_weights outputs/no_cf_0523/ugat_no_cf_uncertainty_sparse.weights.h5
 ```
 
 ### UPert with CF
@@ -128,7 +130,8 @@ python src/run/train_gat_run_cf_drug_loss_control_context.py \
   --predict_uncertainty \
   --pcc_lambda 5.0 \
   --save_meta_json outputs/with_cf_gat_0524/cagnn_control_context.meta.json \
-  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz
+  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz \
+  --save_gat_weights outputs/with_cf_gat_0524/cagnn_control_context.weights.h5
 
 # --- Current ---
 python src/run/train_models.py --variant control \
@@ -142,7 +145,8 @@ python src/run/train_models.py --variant control \
   --predict_uncertainty \
   --pcc_lambda 5.0 \
   --save_meta_json outputs/with_cf_gat_0524/cagnn_control_context.meta.json \
-  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz
+  --save_eval_npz outputs/with_cf_gat_0524/cagnn_control_context.eval.npz \
+  --save_gat_weights outputs/with_cf_gat_0524/cagnn_control_context.weights.h5
 ```
 
 ### DeepCOP baseline
