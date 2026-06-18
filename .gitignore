@@ -4,8 +4,19 @@ venv/
 .env
 .env.*
 
-# Local datasets / large artifacts (do not upload)
-/data/
+# --- data/ --- ignore everything, un-ignore only what the code reads ---
+/data/*
+!/data/GSE92742_Broad_LINCS_gene_info.txt
+!/data/landmark_genes.json
+!/data/landmark.txt
+!/data/compound_targets.txt
+!/data/compoundinfo_beta.txt
+!/data/siginfo_beta.txt
+!/data/new_morgan_fingerprints.csv
+!/data/omnipath/
+/data/omnipath/*
+!/data/omnipath/omnipath_tf_regulons.csv
+!/data/omnipath/omnipath_interactions.csv
 
 __pycache__/
 .pytest_cache/
@@ -13,10 +24,6 @@ __pycache__/
 .ruff_cache/
 .ipynb_checkpoints/
 .DS_Store
-
-# Common large compressed/tabular files in data/
-/data/**/*.gz
-/data/**/*.csv
 
 # IDE / local notes
 /.trae/
@@ -58,7 +65,7 @@ texput.log
 *.xlsx
 *.pptx
 
-# Thesis build artifacts (keep .tex/.bib/.sty, ignore generated PDF if desired)
+# Thesis build artifacts
 *.bbl
 *.blg
 *.lof
@@ -80,13 +87,10 @@ liuthesis_my/thesis.pdf
 # DeepCOP bundled data
 /DeepCOP/Data/
 
-# Third-party large subprojects (optional to exclude from main repo)
-# /DeepCOP/Data/
-
-# Upstream thesis template repo (use liuthesis_my instead)
+# Upstream thesis template repo
 /liuthesis/
 
-# Local project folders to exclude from version control
+# Local project folders
 /DeepCOP/
 /GSNN/
 /meeting/
@@ -94,4 +98,3 @@ liuthesis_my/thesis.pdf
 /references/
 /results/
 /XPert/
-/results/

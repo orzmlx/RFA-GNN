@@ -1,0 +1,2 @@
+data/siginfo_beta.txt filter=lfs diff=lfs merge=lfs -text
+data/new_morgan_fingerprints.csv filter=lfs diff=lfs merge=lfs -text
